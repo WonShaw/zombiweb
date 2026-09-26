@@ -13,8 +13,8 @@ export const SILL = 0.9;
 export const LINTEL = 2.1;
 export const BOARDS = 6;
 /**
- * 路障材质档位：0 普通木板，1 厚木板，2 带铆钉厚木板，3 普通钢板，4 加厚钢板，5 带铆钉钢板，
- * 6 铁丝网钢板（带铆钉钢板 + 铁丝网反伤）
+ * 路障材质档位：0 普通木板，1 厚木板，2 带铆钉厚木板，3 普通钢板，4 加厚钢板，5 带铆钉加厚钢板，
+ * 6 带铁丝网的铆钉加厚钢板（第 5 档 + 铁丝网反伤）
  */
 export const STEEL_TIER = 3;
 export const WIRE_TIER = 6;
@@ -510,7 +510,7 @@ export class Level {
       new THREE.MeshStandardMaterial({ map: TX.plankTexture(2), roughness: 0.75, metalness: 0.2 }),
       new THREE.MeshStandardMaterial({ map: TX.plankTexture(3), color: 0xb4c2d8, roughness: 0.5, metalness: 0.35 }),
       new THREE.MeshStandardMaterial({ map: TX.plankTexture(4), color: 0xa8b6cc, roughness: 0.5, metalness: 0.4 }),
-      new THREE.MeshStandardMaterial({ map: TX.plankTexture(5), color: 0xc4ccd8, roughness: 0.45, metalness: 0.7 }),
+      new THREE.MeshStandardMaterial({ map: TX.plankTexture(5), color: 0xa8b6cc, roughness: 0.45, metalness: 0.45 }),
     ];
     const boardGeo = new THREE.BoxGeometry(1.25, 0.15, 0.035);
     const diagGeo = new THREE.BoxGeometry(1.45, 0.15, 0.035);

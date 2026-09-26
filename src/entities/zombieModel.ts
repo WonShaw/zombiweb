@@ -5,14 +5,14 @@ export type HitPart = 'head' | 'torso' | 'limb';
 
 /**
  * 丧尸的固定姿势：出生时随机选一种，一直保持到死，挨枪不会变。
- * 数值都是叠加在基础动画上的偏移（弧度）。
+ * 数值都是叠加在基础动画上的偏移（弧度）。姿势是静态的；走路时上半身不晃，方便瞄准。
  */
 interface Pose {
   name: string;
   weight: number;
   torsoX: number; // + 前倾，- 后仰
   torsoZ: number; // 侧倾
-  torsoY: number; // 扭身
+  torsoY: number; // 扭身（静态）
   headX: number; // + 低头，- 仰头
   headZ: number; // 歪头
   armL: number; // 叠加到肩部旋转：负数把手抬得更高，正数往下垂
@@ -211,9 +211,10 @@ export class ZombieModel {
       this.rLeg.rotation.x = s * amp;
       this.lShin.rotation.x = Math.max(0, c) * amp * 1.2 * (1 - limp * 0.5) + limp * 0.35;
       this.rShin.rotation.x = Math.max(0, -c) * amp * 1.2;
-      this.hips.position.y = 0.96 - Math.abs(c) * 0.04 * amp - limp * 0.03;
-      this.hips.rotation.z = s * (0.06 + limp * 0.1);
-      this.hips.rotation.y = s * 0.08;
+      // 上半身保持稳定：只留很小的上下起伏，不左右晃、不扭腰
+      this.hips.position.y = 0.96 - Math.abs(c) * 0.012 * amp - limp * 0.03;
+      this.hips.rotation.z = 0;
+      this.hips.rotation.y = 0;
     } else if (mode === 'climb') {
       this.lLeg.rotation.x = -1.2;
       this.rLeg.rotation.x = -0.3;
@@ -226,13 +227,15 @@ export class ZombieModel {
       this.lShin.rotation.x *= 0.85;
       this.rShin.rotation.x *= 0.85;
       this.hips.position.y = 0.96;
-      this.hips.rotation.z *= 0.9;
+      this.hips.rotation.z = 0;
+      this.hips.rotation.y = 0;
     }
 
     // 躯干与头
-    this.torso.rotation.x = lean + (mode === 'move' ? Math.abs(c) * 0.05 : 0) + (mode === 'climb' ? 0.5 : 0);
-    this.torso.rotation.y = mode === 'move' ? -s * 0.1 : 0;
-    this.head.rotation.z = q.headTilt + Math.sin(phase * 0.5) * 0.08;
+    this.torso.rotation.x = lean + (mode === 'climb' ? 0.5 : 0);
+    this.torso.rotation.y = 0;
+    this.torso.rotation.z = 0;
+    this.head.rotation.z = q.headTilt;
     this.head.rotation.x = -lean * 0.6;
 
     // 手臂

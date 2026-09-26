@@ -88,18 +88,21 @@ export class Zombie {
     }
   }
 
-  private moveToward(tx: number, tz: number, speed: number, dt: number) {
+  /** face=false 时只挪位置不转身；离目标很近时也不转，避免被挤来挤去时原地打转 */
+  private moveToward(tx: number, tz: number, speed: number, dt: number, face = true) {
     const dx = tx - this.pos.x, dz = tz - this.pos.z;
     const d = Math.hypot(dx, dz);
     if (d < 1e-3) return;
     const step = Math.min(d, speed * dt);
     this.pos.x += (dx / d) * step;
     this.pos.z += (dz / d) * step;
-    this.faceToward(dx, dz, dt, 9);
+    if (face && d > 0.3) this.faceToward(dx, dz, dt, 9);
   }
+  /** 平滑转身，并限制最大角速度（走路型约 200°/秒，冲刺型约 400°/秒） */
   private faceToward(dx: number, dz: number, dt: number, rate: number) {
     const want = Math.atan2(dx, dz);
-    this.yaw += angleDiff(this.yaw, want) * damp(rate, dt);
+    const maxTurn = (this.type === 'sprint' ? 7 : this.type === 'run' ? 5 : 3.5) * dt;
+    this.yaw += clamp(angleDiff(this.yaw, want) * damp(rate, dt), -maxTurn, maxTurn);
   }
 
   /** 选择下一个移动目标：看得见玩家就直冲，否则沿流场“拉线”走 */
@@ -134,11 +137,10 @@ export class Zombie {
     }
     if (this.state === 'dying') return this.updateDying(dt);
     if (this.stunT > 0) {
-      // 被电网电住：原地抽搐
+      // 被电网电住：原地定住（不抖动，方便瞄准）
       this.stunT -= dt;
       this.model.animate(this.phase, this.type, 'idle', this.st);
-      this.model.root.position.set(this.pos.x + (Math.random() - 0.5) * 0.05, this.pos.y, this.pos.z + (Math.random() - 0.5) * 0.05);
-      this.model.root.rotation.y = this.yaw;
+      this.sync();
       return;
     }
 
@@ -180,7 +182,7 @@ export class Zombie {
           this.setState('approach');
           break;
         }
-        if (off > 0.15) this.moveToward(o.x, o.z, 1, dt);
+        if (off > 0.15) this.moveToward(o.x, o.z, 1, dt, false);
         const nb = g.level.boardCount(w);
         if (nb > 0) {
           this.tearT -= dt;
@@ -245,8 +247,8 @@ export class Zombie {
       case 'attacking': {
         mode = 'attack';
         animT = this.st / ATTACK_DUR;
-        this.faceToward(pdx, pdz, dt, 10);
-        if (this.returnState === 'chasing' && pDist > 0.75) this.moveToward(p.x, p.z, this.speed * 0.2, dt);
+        if (pDist > 0.3) this.faceToward(pdx, pdz, dt, 10);
+        if (this.returnState === 'chasing' && pDist > 0.75) this.moveToward(p.x, p.z, this.speed * 0.2, dt, false);
         if (!this.attackHit && this.st > ATTACK_DUR * 0.5) {
           this.attackHit = true;
           g.audio.zombieSwipe(this.headPos());

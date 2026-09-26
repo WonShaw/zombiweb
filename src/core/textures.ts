@@ -230,7 +230,7 @@ export function groundTexture() {
 
 /**
  * 窗户路障用的板子：
- * 0 普通木板，1 厚木板，2 带铆钉厚木板，3 普通钢板，4 加厚钢板，5 带铆钉钢板
+ * 0 普通木板，1 厚木板，2 带铆钉厚木板，3 普通钢板，4 加厚钢板，5 带铆钉加厚钢板
  */
 export function plankTexture(variant: 0 | 1 | 2 | 3 | 4 | 5 = 0) {
   const W = 256;
@@ -247,10 +247,10 @@ export function plankTexture(variant: 0 | 1 | 2 | 3 | 4 | 5 = 0) {
     [112, 78, 48],
     [112, 122, 136],
     [82, 90, 102],
-    [106, 110, 118],
+    [82, 90, 102],
   ][variant];
   // 厚板和加厚钢板有明显的倒角：上沿亮、下沿暗
-  const bevel = variant === 1 || variant === 2 || variant === 4 ? 6 : 3;
+  const bevel = variant === 1 || variant === 2 || variant === 4 || variant === 5 ? 6 : 3;
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
       const i = y * W + x;
@@ -318,17 +318,20 @@ export function plankTexture(variant: 0 | 1 | 2 | 3 | 4 | 5 = 0) {
       scratches(8, 0.12);
       break;
     case 5:
-      g.strokeStyle = 'rgba(0,0,0,0.5)';
-      g.lineWidth = 3;
-      g.strokeRect(2, 2, W - 4, H - 4);
-      for (let x = 12; x < W; x += 34) {
-        rivet(x, 9, 3.2);
-        rivet(x, H - 9, 3.2);
+      // 加厚钢板（同样的焊缝）+ 上下两排铆钉 + 少量锈迹
+      g.fillStyle = 'rgba(0,0,0,0.35)';
+      g.fillRect(W / 2 - 2, 0, 4, H);
+      g.fillStyle = 'rgba(255,220,160,0.18)';
+      for (let y = 4; y < H - 4; y += 5) g.fillRect(W / 2 - 3, y, 6, 2);
+      for (let x = 12; x < W; x += 30) {
+        if (Math.abs(x - W / 2) < 8) continue;
+        rivet(x, 11, 3.6);
+        rivet(x, H - 12, 3.6);
       }
-      for (let k = 0; k < 6; k++) {
-        g.fillStyle = `rgba(120,60,20,${0.2 + r() * 0.25})`;
+      for (let k = 0; k < 4; k++) {
+        g.fillStyle = `rgba(120,60,20,${0.15 + r() * 0.2})`;
         g.beginPath();
-        g.ellipse(r() * W, r() * H, 6 + r() * 16, 3 + r() * 6, 0, 0, 7);
+        g.ellipse(r() * W, r() * H, 5 + r() * 12, 2 + r() * 5, 0, 0, 7);
         g.fill();
       }
       break;
