@@ -496,13 +496,6 @@ export class Level {
     });
   }
 
-  /** 玩家所在区域 + 通过已打开的门直接相连的区域：丧尸只从这些区域的窗户出来 */
-  spawnZones(zone: number) {
-    const set = new Set<number>([zone]);
-    for (const d of this.doors) if (d.open && d.zones.includes(zone)) for (const z of d.zones) set.add(z);
-    return set;
-  }
-
   openDoor(d: DoorRT) {
     if (d.open) return;
     d.open = true;
