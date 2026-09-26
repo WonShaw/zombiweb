@@ -36,6 +36,8 @@ const HIP: Record<string, THREE.Vector3> = {
 };
 const ADS_Z: Record<string, number> = { pistol: -0.25, wonder: -0.27, smg: -0.2, rifle: -0.19, shotgun: -0.2, sniper: -0.17, lmg: -0.2, launcher: -0.22 };
 const SWITCH_HALF = 0.22;
+/** 右键按住超过这个时间再松开，算“按住瞄准”（松开就取消）；更短算“点一下”，保持瞄准直到再点一下 */
+const AIM_HOLD = 0.3;
 /** 致死一击的击飞力度 */
 const FORCE: Record<string, number> = { pistol: 1, smg: 1, rifle: 1.5, shotgun: 3, lmg: 1.7, sniper: 3, launcher: 5, wonder: 2 };
 
@@ -68,6 +70,10 @@ export class WeaponSystem {
   private holdFire = false;
   private burstLeft = 0;
   private sprintT = 0;
+  /** 瞄准开关：右键点一下打开并保持，再点一下关掉 */
+  private aimOn = false;
+  /** 右键按下后的计时（区分点一下和按住），-1 表示没在计时 */
+  private aimHoldT = -1;
   private carryT = 0;
   private kickV = 0;
   private swayX = 0;
@@ -224,6 +230,7 @@ export class WeaponSystem {
     this.switchTo = i;
     this.switchT = 0;
     this.swapped = false;
+    this.stopAim();
     this.reloadT = -1;
     this.burstLeft = 0;
   }
@@ -268,6 +275,12 @@ export class WeaponSystem {
   }
 
   /** 这次按下的左键已经被用掉了，松开前不要开火 */
+  /** 退出瞄准（换枪、喝饮料、冲刺、搬机枪、死亡时） */
+  stopAim() {
+    this.aimOn = false;
+    this.aimHoldT = -1;
+  }
+
   consumeTrigger() {
     this.holdFire = true;
     this.burstLeft = 0;
@@ -282,6 +295,7 @@ export class WeaponSystem {
   }
 
   drink(color: string, done: () => void) {
+    this.stopAim();
     this.drinkT = 2.1;
     this.drinkDone = done;
     this.reloadT = -1;
@@ -325,7 +339,8 @@ export class WeaponSystem {
       if (this.reloadT >= 0) this.updateReload(dt);
 
       const busy = this.busy;
-      const wantAds = inp.mouseDown[2] && !busy && !pl.sprinting;
+      this.updateAim(dt);
+      const wantAds = this.aimOn && !busy && !pl.sprinting;
       this.adsT += ((wantAds ? 1 : 0) - this.adsT) * damp(13, dt);
       this.sprintT += ((pl.sprinting ? 1 : 0) - this.sprintT) * damp(10, dt);
 
@@ -365,10 +380,38 @@ export class WeaponSystem {
       }
       if (w.mag === 0 && this.reloadT < 0 && !this.busy && this.cooldown <= 0) this.startReload();
     } else {
+      this.stopAim();
       this.adsT += (0 - this.adsT) * damp(8, dt);
     }
 
     this.updateViewmodel(dt);
+  }
+
+  /**
+   * 右键瞄准：点一下进入瞄准并保持（方便触控板），再点一下退出；
+   * 按住超过 0.3 秒再松开则松开即退出（和原来的按住瞄准一样）。按 Shift 冲刺会退出瞄准。
+   */
+  private updateAim(dt: number) {
+    const inp = this.game.input;
+    if (this.carrying) {
+      this.stopAim();
+      return;
+    }
+    if (inp.mousePressed[2]) {
+      if (this.aimOn) this.stopAim();
+      else {
+        this.aimOn = true;
+        this.aimHoldT = 0;
+      }
+    }
+    if (this.aimHoldT >= 0) {
+      if (inp.mouseDown[2]) this.aimHoldT += dt;
+      else {
+        if (this.aimHoldT > AIM_HOLD) this.aimOn = false;
+        this.aimHoldT = -1;
+      }
+    }
+    if (inp.wasPressed('ShiftLeft') || inp.wasPressed('ShiftRight')) this.stopAim();
   }
 
   private updateReload(dt: number) {
