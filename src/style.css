@@ -186,6 +186,32 @@ body {
   white-space: nowrap;
 }
 
+/* 拉弓力度条：准星下方，拉满变红 */
+#draw-bar {
+  position: absolute;
+  left: 50%;
+  top: calc(50% + 34px);
+  width: 64px;
+  height: 4px;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.45);
+  border-radius: 2px;
+  overflow: hidden;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+#draw-bar.on {
+  opacity: 1;
+}
+#draw-bar i {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: #f2e6c8;
+}
+#draw-bar.full i {
+  background: #ff5a3a;
+}
 #prompt-bar {
   position: absolute;
   left: 50%;

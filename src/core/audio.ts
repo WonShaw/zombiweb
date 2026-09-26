@@ -8,6 +8,7 @@ export interface ShotSound {
   thump: number; // 低频冲击起始频率
   vol: number;
   zap?: boolean; // 射线枪
+  twang?: boolean; // 弓弦 / 弩弦
 }
 
 interface NoiseOpts {
@@ -173,6 +174,14 @@ export class Sfx {
     if (!this.ctx) return;
     const t = this.now;
     const out = this.out(pos, 1);
+    if (s.twang) {
+      // 弓弦回弹：低沉的拨弦声 + 一小段破空声
+      this.tone(t, 0.22, out, { type: 'triangle', f0: s.freq, f1: s.freq * 0.55, vol: 0.32 * s.vol });
+      this.tone(t, 0.08, out, { type: 'sine', f0: s.thump, f1: 40, vol: 0.5 * s.vol });
+      this.noise(t, 0.1, out, { type: 'bandpass', f0: 1400, f1: 600, q: 1.5, vol: 0.22 * s.vol });
+      this.noise(t + 0.03, 0.25, out, { type: 'bandpass', f0: 2600, f1: 900, q: 2, vol: 0.12 * s.vol, attack: 0.05 });
+      return;
+    }
     if (s.zap) {
       this.tone(t, 0.3, out, { type: 'sawtooth', f0: 1800, f1: 160, vol: 0.22 * s.vol });
       this.tone(t, 0.22, out, { type: 'square', f0: 950, f1: 110, vol: 0.1 * s.vol });
@@ -201,6 +210,12 @@ export class Sfx {
       this.noise(t, 0.04, out, { type: 'bandpass', f0: 2600, q: 3, vol: 0.35 });
       this.noise(t + 0.09, 0.05, out, { type: 'bandpass', f0: 1500, q: 3, vol: 0.4 });
     }
+  }
+
+  /** 拉弓时弓臂的吱呀声 */
+  bowDraw() {
+    if (!this.ctx) return;
+    this.noise(this.now, 0.45, this.out(null), { type: 'bandpass', f0: 380, f1: 520, q: 6, vol: 0.12, attack: 0.3 });
   }
 
   dryFire() {

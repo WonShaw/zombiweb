@@ -45,6 +45,7 @@ export class Hud {
     perks: $('perks'),
     powerups: $('powerups'),
     reloadHint: $('reload-hint'),
+    drawBar: $('draw-bar'),
     menu: $('menu'),
     pause: $('pause'),
     over: $('gameover'),
@@ -243,6 +244,14 @@ export class Hud {
     }
     const needReload = !melee && w.mag <= Math.ceil(w.def.mag * 0.25) && w.def.mag > 2 && !g.weapons.reloading;
     this.el.reloadHint.textContent = needReload ? '按 R 换弹' : '';
+
+    // 拉弓力度条
+    const drawing = ws.drawing && !melee;
+    this.el.drawBar.classList.toggle('on', drawing);
+    if (drawing) {
+      (this.el.drawBar.firstElementChild as HTMLElement).style.width = `${Math.round(ws.drawT * 100)}%`;
+      this.el.drawBar.classList.toggle('full', ws.drawT >= 1);
+    }
 
     // 准星：随散布张开，开镜/冲刺时隐藏
     const cam = g.camera;

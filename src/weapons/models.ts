@@ -14,6 +14,8 @@ export interface GunModel {
   group: THREE.Group;
   muzzle: THREE.Object3D;
   sightY: number;
+  /** 弓弩：弓弦、箭、拉弦的手是单独的活动零件。draw 0..1 拉弦程度，arrow 是否搭着箭 */
+  rig?: { update(draw: number, arrow: boolean): void };
 }
 
 interface Info {
@@ -21,8 +23,8 @@ interface Info {
   sightY: number;
   /** 右手（握把）位置 */
   right: THREE.Vector3;
-  /** 左手位置；'cup' = 手枪双手握，贴在右手旁边 */
-  left: THREE.Vector3 | 'cup';
+  /** 左手位置；'cup' = 手枪双手握，贴在右手旁边；'bow' = 左手握弓、右手在弓弦上（活动零件） */
+  left: THREE.Vector3 | 'cup' | 'bow';
 }
 
 type Builder = (g: THREE.Group) => Info;
@@ -443,6 +445,72 @@ const BUILDERS: Record<string, Builder> = {
     side(g, [[0.2, 0.05], [0.29, 0.056], [0.302, 0.05], [0.304, -0.052], [0.29, -0.056], [0.24, -0.014], [0.2, 0.012]], 0.044, M.poly, 0, 0.005);
     rbox(g, 0.046, 0.108, 0.012, 0, -0.001, 0.306, M.dark, 0.003);
     return { muzzle: [0, by, -0.602], sightY: 0.08, right: gc, left: V(0, by - 0.045, -0.27) };
+  },
+
+  // ---------------- 弓弩（弓弦、箭、拉弦的手在 BOW_RIGS 里单独做） ----------------
+
+  recurve(g) {
+    // 木质弓把（握把在原点）：握把以上偏到箭的右边，留出瞄准的窗口；往后弯再反曲的上下弓臂
+    side(g, [[0.02, -0.2], [0.02, -0.05], [0.036, -0.03], [0.036, 0.02], [0.02, 0.028], [-0.022, 0.028], [-0.022, -0.2]], 0.03, M.woodRed, 0, 0.006);
+    side(g, [[0.012, 0.012], [0.012, 0.2], [-0.022, 0.2], [-0.022, 0.012]], 0.026, M.woodRed, 0.024, 0.006);
+    rbox(g, 0.05, 0.012, 0.032, 0.012, 0.022, -0.004, M.leather, 0.003);
+    for (const s of [1, -1]) {
+      tube(g, [V(0, 0.19 * s, -0.005), V(0, 0.34 * s, 0.05), V(0, 0.48 * s, 0.125), V(0, 0.57 * s, 0.17), V(0, 0.625 * s, 0.155)], 0.0095, M.woodDark);
+      sphere(g, 0.007, 0, 0.628 * s, 0.153, M.dark, 8);
+    }
+    return { muzzle: [0, 0.03, -0.6], sightY: 0.045, right: V(0, 0.03, 0.16), left: 'bow' };
+  },
+
+  compound(g) {
+    // 铝合金弓把：握把以上偏到箭的右边（瞄准窗口），上下弓臂座回到中线；分叉短弓臂 + 偏心轮 + 滑轮线
+    side(g, [[0.03, -0.26], [0.03, -0.06], [0.045, -0.04], [0.045, 0.02], [0.02, 0.03], [-0.03, 0.03], [-0.042, -0.12], [-0.03, -0.26]], 0.032, M.anod, 0, 0.004);
+    side(g, [[0.018, 0.012], [0.02, 0.2], [0.0, 0.23], [-0.03, 0.2], [-0.042, 0.1], [-0.03, 0.012]], 0.026, M.anod, 0.03, 0.004, [[[-0.02, 0.17], [0.005, 0.17], [0.0, 0.08], [-0.022, 0.1]]]);
+    rbox(g, 0.058, 0.03, 0.05, 0.015, 0.235, -0.005, M.anod, 0.004);
+    box(g, 0.035, 0.07, 0.04, 0, -0.02, 0.025, M.poly);
+    for (const s of [1, -1]) {
+      for (const x of [-0.011, 0.011]) limb(g, V(x, 0.25 * s, 0.0), V(x, 0.39 * s, 0.125), 0.016, M.dark);
+      cylX(g, 0.035, 0.012, 0, 0.4 * s, 0.13, M.bright, 20);
+      cylX(g, 0.012, 0.0126, 0, 0.4 * s, 0.13, M.dark, 12);
+    }
+    // 滑轮线被线挡杆推到右边，不挡视线
+    for (const x of [0.024, 0.03]) box(g, 0.0022, 0.8, 0.0022, x, 0, 0.1, M.dark);
+    cylZ(g, 0.004, 0.004, 0.11, 0.024, 0.05, 0.05, M.dark, 8);
+    // 箭台、瞄准器（圆形护圈 + 绿色光纤针）、前伸平衡杆
+    ringZ(g, 0.008, 0.0025, 0, 0.03, -0.034, M.dark);
+    const sy = 0.085;
+    box(g, 0.03, 0.01, 0.012, 0.03, sy, -0.045, M.dark);
+    ringZ(g, 0.02, 0.003, 0, sy, -0.06, M.dark);
+    box(g, 0.019, 0.0014, 0.0014, 0.0095, sy, -0.06, M.fiber);
+    sphere(g, 0.0022, 0, sy, -0.06, M.fiber, 10);
+    cylZ(g, 0.008, 0.008, 0.22, 0, -0.03, -0.15, M.dark, 10);
+    cylZ(g, 0.016, 0.016, 0.03, 0, -0.03, -0.27, M.dark, 14);
+    return { muzzle: [0, 0.03, -0.58], sightY: sy, right: V(0, 0.03, 0.165), left: 'bow' };
+  },
+
+  crossbow(g) {
+    // 枪托 + 握把 + 护圈 + 前握把
+    side(g, [[0.02, 0.03], [0.05, 0.035], [0.3, 0.03], [0.315, 0.025], [0.315, -0.075], [0.3, -0.08], [0.18, -0.04], [0.1, -0.035], [0.07, -0.01], [0.02, -0.01]], 0.042, M.poly, 0, 0.005);
+    const gc = grip(g, 0.04, 0.075, -0.01, 0.085, 0.3, 0.028, M.poly, 0.006);
+    triggerGuard(g, 0.035, -0.006, -0.01, -0.035, M.poly);
+    side(g, [[-0.06, 0.012], [-0.06, -0.014], [-0.24, -0.01], [-0.25, 0.012]], 0.04, M.poly, 0, 0.004);
+    // 弩身导轨（上面有放弩箭的槽）
+    side(g, [[0.03, 0.03], [0.03, 0.048], [-0.44, 0.048], [-0.46, 0.04], [-0.46, 0.02], [-0.3, 0.012], [0.0, 0.012]], 0.036, M.anod, 0, 0.002);
+    box(g, 0.005, 0.002, 0.46, 0, 0.0485, -0.21, M.hole);
+    rbox(g, 0.03, 0.012, 0.03, 0, 0.056, 0.012, M.dark, 0.002);
+    // 前面的弓臂 + 弓臂座 + 脚蹬
+    rbox(g, 0.08, 0.04, 0.045, 0, 0.036, -0.43, M.anod, 0.004);
+    for (const sx of [1, -1]) {
+      limb(g, V(0.03 * sx, 0.044, -0.43), V(0.2 * sx, 0.044, -0.385), 0.02, M.dark);
+      limb(g, V(0.2 * sx, 0.044, -0.385), V(0.3 * sx, 0.044, -0.335), 0.016, M.dark);
+      cylY(g, 0.008, 0.008, 0.02, 0.3 * sx, 0.048, -0.333, M.bright, 10);
+    }
+    tube(g, [V(-0.05, 0.02, -0.46), V(-0.055, 0.0, -0.52), V(0.055, 0.0, -0.52), V(0.05, 0.02, -0.46)], 0.005, M.dark);
+    // 跨过弩箭的镜桥 + 红点瞄具
+    for (const x of [-0.022, 0.022]) box(g, 0.006, 0.024, 0.05, x, 0.06, -0.04, M.anod);
+    box(g, 0.05, 0.006, 0.05, 0, 0.073, -0.04, M.anod);
+    const sy = 0.076 + 0.0105 + 0.016;
+    holoSight(g, -0.04, 0.076, sy);
+    return { muzzle: [0, 0.052, -0.46], sightY: sy, right: gc, left: V(0, -0.012, -0.15) };
   },
 
   revolver(g) {
@@ -1151,7 +1219,7 @@ function addArms(g: THREE.Group, info: Info) {
   const r = info.right;
   box(g, 0.044, 0.066, 0.08, r.x, r.y - 0.005, r.z, M.skin, -0.2);
   limb(g, V(r.x + 0.01, r.y - 0.02, r.z + 0.05), V(r.x + 0.13, r.y - 0.3, r.z + 0.42), 0.075, M.sleeve);
-  const l = info.left === 'cup' ? V(r.x - 0.014, r.y - 0.01, r.z - 0.015) : info.left;
+  const l = info.left === 'cup' || info.left === 'bow' ? V(r.x - 0.014, r.y - 0.01, r.z - 0.015) : info.left;
   box(g, 0.048, 0.045, 0.085, l.x, l.y - 0.005, l.z, M.skin, 0, 0, 0.3);
   limb(g, V(l.x - 0.015, l.y - 0.02, l.z + 0.05), V(l.x - 0.2, l.y - 0.28, l.z + 0.38), 0.075, M.sleeve);
 }
@@ -1159,21 +1227,105 @@ function addArms(g: THREE.Group, info: Info) {
 /** 带手的第一人称枪模建一次要几十毫秒，建好后留一份模板，之后克隆（共享几何体和材质） */
 const vmCache = new Map<string, GunModel>();
 
+/**
+ * 弓弩的活动零件参数：弦的两个挂点、搭箭点（未拉弦时）、拉满时往后拉多远、箭长。
+ * 弩的“拉弦”就是上弦：0 = 弦在前面（发射后），1 = 弦扣在扳机上。
+ */
+const BOW_RIGS: Record<string, { tips: [number, number, number][]; nock: [number, number, number]; pull: number; len: number }> = {
+  recurve: { tips: [[0, 0.625, 0.155], [0, -0.625, 0.155]], nock: [0, 0.03, 0.16], pull: 0.5, len: 0.76 },
+  compound: { tips: [[0, 0.4, 0.165], [0, -0.4, 0.165]], nock: [0, 0.03, 0.165], pull: 0.52, len: 0.74 },
+  crossbow: { tips: [[0.3, 0.05, -0.333], [-0.3, 0.05, -0.333]], nock: [0, 0.052, -0.335], pull: 0.305, len: 0.42 },
+};
+
+/** 一支搭在弦上的箭：尾部（搭箭点）在原点，箭尖朝 -z */
+function nockedArrow(len: number) {
+  const g = new THREE.Group();
+  cylZ(g, 0.0042, 0.0042, len - 0.03, 0, 0, -(len - 0.03) / 2, M.dark, 8);
+  lathe(g, [[0, -len], [0.0075, -len + 0.035], [0, -len + 0.035]], 0, 0, M.bright, 10);
+  for (let k = 0; k < 3; k++) {
+    const a = (k * Math.PI * 2) / 3;
+    box(g, 0.0014, 0.012, 0.07, Math.sin(a) * 0.009, Math.cos(a) * 0.009, -0.06, k ? M.dial : M.rayRed, 0, 0, -a);
+  }
+  finalize(g);
+  return g;
+}
+
+/** 给弓弩加上弓弦、箭、拉弦的右手（这些零件每帧由 rig.update 摆位置） */
+function addBowParts(g: THREE.Group, model: string, withArms: boolean) {
+  const R = BOW_RIGS[model];
+  const mat = new THREE.MeshStandardMaterial({ color: 0x1c1d1f, roughness: 0.6 });
+  for (const name of ['strU', 'strL']) {
+    const s = new THREE.Mesh(new THREE.BoxGeometry(0.0022, 0.0022, 1).translate(0, 0, 0.5), mat);
+    s.name = name;
+    g.add(s);
+  }
+  const arrow = nockedArrow(R.len);
+  arrow.name = 'arrow';
+  g.add(arrow);
+  if (withArms && model !== 'crossbow') {
+    const hand = new THREE.Group();
+    box(hand, 0.05, 0.065, 0.075, 0.012, -0.012, 0.025, M.skin);
+    limb(hand, V(0.02, -0.02, 0.05), V(0.2, -0.24, 0.42), 0.075, M.sleeve);
+    finalize(hand);
+    hand.name = 'drawHand';
+    g.add(hand);
+  }
+}
+
+const _zAxis = new THREE.Vector3(0, 0, 1);
+function bindRig(model: string, g: THREE.Group): GunModel['rig'] {
+  const R = BOW_RIGS[model];
+  if (!R) return undefined;
+  const strs = [g.getObjectByName('strU')!, g.getObjectByName('strL')!];
+  const arrow = g.getObjectByName('arrow')!;
+  const hand = g.getObjectByName('drawHand');
+  const nock = new THREE.Vector3();
+  const d = new THREE.Vector3();
+  const rig = {
+    update(draw: number, on: boolean) {
+      nock.set(R.nock[0], R.nock[1], R.nock[2] + R.pull * draw);
+      R.tips.forEach((t, i) => {
+        const s = strs[i];
+        s.position.set(...t);
+        d.subVectors(nock, s.position);
+        const len = d.length();
+        s.quaternion.setFromUnitVectors(_zAxis, d.divideScalar(len));
+        s.scale.set(1, 1, len);
+      });
+      arrow.visible = on;
+      arrow.position.copy(nock);
+      if (hand) hand.position.copy(nock);
+    },
+  };
+  rig.update(model === 'crossbow' ? 1 : 0, true);
+  return rig;
+}
+
+/** 弓：左手握着弓把，袖子往左下后方伸 */
+function addBowArm(g: THREE.Group) {
+  box(g, 0.05, 0.085, 0.06, 0.004, -0.012, 0.012, M.skin);
+  limb(g, V(-0.005, -0.035, 0.03), V(-0.15, -0.3, 0.4), 0.075, M.sleeve);
+}
+
 export function buildGun(model: string, withArms: boolean): GunModel {
   const cached = withArms ? vmCache.get(model) : undefined;
   if (cached) {
     const group = cached.group.clone();
-    return { group, muzzle: group.getObjectByName('muzzle')!, sightY: cached.sightY };
+    return { group, muzzle: group.getObjectByName('muzzle')!, sightY: cached.sightY, rig: bindRig(model, group) };
   }
   const group = new THREE.Group();
   const info = (BUILDERS[model] ?? BUILDERS.pistol)(group);
-  if (withArms) addArms(group, info);
+  if (withArms) {
+    if (info.left === 'bow') addBowArm(group);
+    else addArms(group, info);
+  }
   finalize(group);
+  if (BOW_RIGS[model]) addBowParts(group, model, withArms);
   const muzzle = new THREE.Object3D();
   muzzle.name = 'muzzle';
   muzzle.position.set(...info.muzzle);
   group.add(muzzle);
-  const gm = { group, muzzle, sightY: info.sightY };
+  const gm: GunModel = { group, muzzle, sightY: info.sightY, rig: bindRig(model, group) };
   if (!withArms) return gm;
   vmCache.set(model, gm);
   return buildGun(model, true);

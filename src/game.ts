@@ -8,6 +8,7 @@ import { Player } from './entities/player';
 import { ZombieManager } from './entities/zombies';
 import { WeaponSystem } from './weapons/weaponSystem';
 import { Projectiles } from './weapons/projectiles';
+import { Arrows } from './weapons/arrows';
 import { Interactables } from './world/interactables';
 import { Powerups } from './world/powerups';
 import { Turrets, TURRET_KINDS, TURRET_UPGRADES, type TurretKind, type TurretUpgradeId } from './world/turrets';
@@ -51,6 +52,7 @@ export class Game {
   weapons: WeaponSystem;
   zombies: ZombieManager;
   projectiles: Projectiles;
+  arrows: Arrows;
   powerups: Powerups;
   interactables: Interactables;
 
@@ -99,6 +101,7 @@ export class Game {
     this.weapons = new WeaponSystem(this);
     this.zombies = new ZombieManager(this);
     this.projectiles = new Projectiles(this);
+    this.arrows = new Arrows(this);
     this.powerups = new Powerups(this);
     this.interactables = new Interactables(this);
     this.shop = new Shop(this);
@@ -350,6 +353,7 @@ export class Game {
     this.level.updateFlow(pl.pos.x, pl.groundY, pl.pos.z);
     this.zombies.update(dt);
     this.projectiles.update(dt);
+    this.arrows.update(dt);
     this.turrets.update(dt);
     this.powerups.update(dt);
     this.level.update(dt);

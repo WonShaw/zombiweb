@@ -11,7 +11,7 @@ const $ = (id: string) => document.getElementById(id)!;
 
 type Cat = WeaponClass | 'all';
 type Tab = 'weapons' | 'turret' | 'melee' | 'barricade';
-const CATS: Cat[] = ['all', 'pistol', 'smg', 'rifle', 'shotgun', 'lmg', 'sniper', 'launcher', 'wonder'];
+const CATS: Cat[] = ['all', 'pistol', 'smg', 'rifle', 'shotgun', 'lmg', 'sniper', 'bow', 'launcher', 'wonder'];
 
 function statBars(d: WeaponDef): [string, number][] {
   const dmg = d.chain ? d.damage : d.projectile ? d.projectile.splashDamage : d.damage * d.pellets;
@@ -25,6 +25,8 @@ function statBars(d: WeaponDef): [string, number][] {
 }
 
 function rpmOf(d: WeaponDef) {
+  if (d.bow) return 60 / (d.interval + d.bow.draw);
+  if (d.arrow) return 60 / (d.interval + d.reload);
   if (d.burst) return (60 * d.burst) / (d.interval * (d.burst - 1) + (d.burstDelay ?? 0.25));
   return 60 / d.interval;
 }
@@ -32,11 +34,14 @@ function rpmOf(d: WeaponDef) {
 function tagsOf(d: WeaponDef) {
   const t: string[] = [];
   if (d.chain) t.push('连锁闪电');
+  else if (d.bow) t.push('按住拉弓蓄力');
+  else if (d.arrow) t.push('单发上弦');
   else if (d.projectile?.kind === 'rocket') t.push('火箭弹');
   else if (d.projectile) t.push('能量弹');
   else if (d.burst) t.push(`${d.burst} 连发`);
   else if (d.auto) t.push('全自动');
   else t.push('半自动');
+  if (d.arrow) t.push('箭矢下坠');
   if (d.pellets > 1) t.push(`${d.pellets} 颗弹丸`);
   if (d.penetrate > 0) t.push(`穿透 ${d.penetrate}`);
   if (d.projectile) t.push('范围伤害');
@@ -224,7 +229,7 @@ export class Shop {
           <div class="thumb"><img src="${this.thumbs.get(d.id) ?? ''}" alt="" /></div>
           <div class="row"><b>${d.name}</b><span class="cls">${CLASS_NAMES[d.cls]}</span></div>
           <div class="desc">${d.desc}</div>
-          <div class="tags">${tags}<em>弹匣 ${d.mag}</em></div>
+          <div class="tags">${tags}<em>${d.bow ? '箭无限' : `弹匣 ${d.mag}`}</em></div>
           <div class="bars">${bars}</div>
           <button class="buy" data-buy="${d.id}" ${disabled ? 'disabled' : ''}>${label}</button>
         </div>`;
@@ -373,7 +378,18 @@ export class Shop {
       canvas.width = W;
       canvas.height = H;
       const ctx = canvas.getContext('2d')!;
-      const queue: [string, () => THREE.Object3D][] = Object.values(WEAPONS).map((d) => [d.id, () => buildGun(d.model, false).group]);
+      const queue: [string, () => THREE.Object3D][] = Object.values(WEAPONS).map((d) => [
+        d.id,
+        () => {
+          const m = buildGun(d.model, false).group;
+          if (!d.bow) return m;
+          // 弓竖着太高、侧面又只是一条线：放倒成横着，箭朝上
+          const w = new THREE.Group();
+          m.rotation.set(Math.PI / 2, 0, 0.2);
+          w.add(m);
+          return w;
+        },
+      ]);
       queue.push(['turret', () => buildTurretModel('light').group]);
       // 近战武器：刀身沿 +y，先转成沿 -z，和枪一样摆成刀尖朝右
       for (const id of Object.keys(MELEE)) {

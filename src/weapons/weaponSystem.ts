@@ -32,15 +32,16 @@ const HIP: Record<string, THREE.Vector3> = {
   rifle: new THREE.Vector3(0.125, -0.14, -0.23),
   shotgun: new THREE.Vector3(0.125, -0.14, -0.23),
   sniper: new THREE.Vector3(0.125, -0.14, -0.2),
+  bow: new THREE.Vector3(0.125, -0.14, -0.23),
   lmg: new THREE.Vector3(0.13, -0.145, -0.24),
   launcher: new THREE.Vector3(0.16, -0.1, -0.2),
 };
-const ADS_Z: Record<string, number> = { pistol: -0.25, wonder: -0.27, smg: -0.2, rifle: -0.19, shotgun: -0.2, sniper: -0.17, lmg: -0.2, launcher: -0.22 };
+const ADS_Z: Record<string, number> = { pistol: -0.25, wonder: -0.27, smg: -0.2, rifle: -0.19, shotgun: -0.2, sniper: -0.17, bow: -0.19, lmg: -0.2, launcher: -0.22 };
 const SWITCH_HALF = 0.22;
 /** 右键按住超过这个时间再松开，算“按住瞄准”（松开就取消）；更短算“点一下”，保持瞄准直到再点一下 */
 const AIM_HOLD = 0.3;
 /** 致死一击的击飞力度 */
-const FORCE: Record<string, number> = { pistol: 1, smg: 1, rifle: 1.5, shotgun: 3, lmg: 1.7, sniper: 3, launcher: 5, wonder: 2 };
+const FORCE: Record<string, number> = { pistol: 1, smg: 1, rifle: 1.5, shotgun: 3, lmg: 1.7, sniper: 3, bow: 2, launcher: 5, wonder: 2 };
 
 export class WeaponSystem {
   owned: Owned[] = [];
@@ -64,6 +65,10 @@ export class WeaponSystem {
   /** 轻击左右交替 */
   private slashFlip = false;
   private switchToMelee = false;
+  /** 弓：正在拉弦、拉弦进度 0..1（显示用的弦位置 drawVis 松手时立刻弹回） */
+  drawing = false;
+  drawT = 0;
+  private drawVis = 0;
   private bottle: { group: THREE.Group; glass: THREE.MeshStandardMaterial };
   private flash: THREE.Mesh;
   private flashT = 0;
@@ -163,7 +168,7 @@ export class WeaponSystem {
   }
   get moveMult() {
     if (this.meleeOut) return this.melee.move;
-    return this.current?.def.move ?? 1;
+    return (this.current?.def.move ?? 1) * (this.drawing ? 0.75 : 1);
   }
   /** 当前散布，HUD 准星用 */
   get spreadNow() {
@@ -270,6 +275,8 @@ export class WeaponSystem {
   private beginSwitch(i: number) {
     if ((i === this.cur && !this.meleeOut) || i < 0 || i >= this.owned.length || this.busy) return;
     this.switchToMelee = false;
+    this.drawing = false;
+    this.drawT = 0;
     this.switchTo = i;
     this.switchT = 0;
     this.swapped = false;
@@ -281,6 +288,8 @@ export class WeaponSystem {
   /** 拿出近战武器 */
   private beginSwitchMelee() {
     if (this.meleeOut || this.busy) return;
+    this.drawing = false;
+    this.drawT = 0;
     this.switchToMelee = true;
     this.switchTo = this.cur;
     this.switchT = 0;
@@ -441,7 +450,26 @@ export class WeaponSystem {
       if (!trig) this.triggerHeld = false;
       const w = this.current;
       const canShoot = !this.busy && this.reloadT < 0 && this.sprintT < 0.35 && this.cooldown <= 0;
-      if (this.burstLeft > 0 && canShoot) {
+      if (w.def.bow) {
+        // 弓：按住左键拉弦，松开放箭；拉不到 15% 就松手算取消
+        if (!this.drawing && trig && !this.triggerHeld && canShoot) {
+          this.drawing = true;
+          this.drawT = 0;
+          g.audio.bowDraw();
+        }
+        if (this.drawing) {
+          if (this.busy || pl.sprinting) {
+            this.drawing = false;
+            this.drawT = 0;
+          } else if (trig) this.drawT = Math.min(1, this.drawT + dt / w.def.bow.draw);
+          else {
+            if (this.drawT > 0.15) this.fire(this.drawT);
+            this.drawing = false;
+            this.drawT = 0;
+          }
+        }
+        this.triggerHeld = trig;
+      } else if (this.burstLeft > 0 && canShoot) {
         // 点射：扣一次扳机连发 N 发
         if (w.mag > 0) this.fire();
         else this.burstLeft = 0;
@@ -513,11 +541,13 @@ export class WeaponSystem {
     }
   }
 
-  private fire() {
+  /** 开一枪；弓的 power 是拉弦程度 */
+  private fire(power = 1) {
     const g = this.game;
     const w = this.current;
     const def = w.def;
-    w.mag--;
+    // 弓的箭无限，不用换弹；弩和枪一样一发一装
+    if (!def.bow) w.mag--;
     const rate = g.player.perks.has('doubletap') ? 0.75 : 1;
     if (def.burst) {
       this.burstLeft--;
@@ -526,8 +556,11 @@ export class WeaponSystem {
     g.stats.shots++;
     const origin = g.camera.getWorldPosition(this.tmpO);
     const fwd = g.camera.getWorldDirection(this.tmpD);
-    const spread = this.spreadNow;
-    if (def.projectile) {
+    const spread = this.spreadNow * (def.bow ? 1.6 - 0.6 * power : 1);
+    if (def.arrow) {
+      const dir = coneDir(fwd, spread);
+      g.arrows.fire(origin.clone().addScaledVector(dir, 0.3).add(new THREE.Vector3(0, -0.03, 0)), dir, def, power);
+    } else if (def.projectile) {
       const dir = coneDir(fwd, spread);
       g.projectiles.fire(origin.clone().addScaledVector(dir, 0.5).add(new THREE.Vector3(0, -0.08, 0)), dir, def);
     } else if (def.chain) {
@@ -549,6 +582,11 @@ export class WeaponSystem {
     g.audio.shot(def.sound);
     g.player.kick(def.recoil * (1 - this.adsT * 0.35));
     this.kickV = Math.min(1.5, this.kickV + 1);
+    if (def.arrow) {
+      // 弓弩没有枪口火光，弦一下子弹回去
+      this.drawVis = 0;
+      return;
+    }
     this.flashT = def.cls === 'wonder' ? 0 : 0.05;
     this.flash.rotation.z = Math.random() * Math.PI;
     this.flash.scale.setScalar(rand(0.8, 1.3) * (def.cls === 'shotgun' || def.cls === 'lmg' || def.cls === 'launcher' ? 1.5 : 1));
@@ -740,12 +778,23 @@ export class WeaponSystem {
     const hip = w.def.vm ? new THREE.Vector3(...w.def.vm.hip) : HIP[cls];
     const adsZ = w.def.vm ? w.def.vm.adsZ : ADS_Z[cls];
     const pos = new THREE.Vector3().lerpVectors(hip, new THREE.Vector3(0, -m.sightY, adsZ), ads);
+    // 弓弩的活动零件：弓的弦跟着拉弦进度走；弩发射后弦在前面，换弹时慢慢上弦、最后放上弩箭
+    if (m.rig) {
+      if (w.def.bow) {
+        const target = this.drawing ? 1 - (1 - this.drawT) ** 2 : 0;
+        this.drawVis = target > this.drawVis ? target : this.drawVis + (target - this.drawVis) * damp(30, dt);
+        m.rig.update(this.drawVis, this.drawing || this.cooldown <= w.def.interval * 0.4);
+      } else {
+        const p = this.reloadT >= 0 ? 1 - this.reloadT / this.reloadDur : w.mag > 0 ? 1 : 0;
+        m.rig.update(smoothstep(p / 0.8), w.mag > 0 && this.reloadT < 0 ? true : p > 0.85);
+      }
+    }
     // 光学镜开到底：藏起枪模，换成全屏镜头画面
     const scoped = !!w.def.scope && ads > 0.88 && !pl.dead;
     this.holder.visible = !scoped;
     g.hud.setScope(scoped ? w.def.scope! : null);
-    // 腰射时枪口略微朝向准星
-    let rx = 0, ry = 0.035 * (1 - ads), rz = 0;
+    // 腰射时枪口略微朝向准星；弓腰射时斜着拿
+    let rx = 0, ry = 0.035 * (1 - ads), rz = (w.def.vm?.roll ?? 0) * (1 - ads);
 
     const { phase, amt } = pl.bobPhase();
     const bobS = amt * (1 - ads * 0.85) * (1 + this.sprintT * 0.8);

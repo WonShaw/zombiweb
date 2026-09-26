@@ -1,6 +1,6 @@
 import type { ShotSound } from '../core/audio';
 
-export type WeaponClass = 'pistol' | 'smg' | 'rifle' | 'shotgun' | 'lmg' | 'sniper' | 'launcher' | 'wonder';
+export type WeaponClass = 'pistol' | 'smg' | 'rifle' | 'shotgun' | 'lmg' | 'sniper' | 'bow' | 'launcher' | 'wonder';
 
 export const CLASS_NAMES: Record<WeaponClass, string> = {
   pistol: '手枪',
@@ -9,6 +9,7 @@ export const CLASS_NAMES: Record<WeaponClass, string> = {
   shotgun: '霰弹枪',
   lmg: '机枪',
   sniper: '狙击枪',
+  bow: '弓弩',
   launcher: '爆破',
   wonder: '奇迹武器',
 };
@@ -43,8 +44,12 @@ export interface WeaponDef {
   chain?: { targets: number; range: number };
   /** 光学瞄准镜：开镜到底时换成全屏镜头画面（aug 圆环、acog 红色箭头、sniper 十字线） */
   scope?: 'aug' | 'acog' | 'sniper';
+  /** 弓：按住左键拉弓，拉满用时 draw 秒，松开放箭（拉得越满越快越狠，没拉满不能穿透） */
+  bow?: { draw: number };
+  /** 射出去的是箭 / 弩箭：初速、重力（米/秒²）、箭长 */
+  arrow?: { speed: number; gravity: number; len: number };
   /** 第一人称枪模位置覆盖 */
-  vm?: { hip: [number, number, number]; adsZ: number };
+  vm?: { hip: [number, number, number]; adsZ: number; roll?: number };
 }
 
 const W = (d: WeaponDef) => d;
@@ -301,6 +306,34 @@ export const WEAPONS: Record<string, WeaponDef> = {
     interval: 1.3, auto: false, mag: 5, reload: 3.2,
     recoil: 0.07, penetrate: 4, move: 0.88, adsFov: 14, scope: 'sniper',
     sound: snd(1250, 0.75, 65, 1.0), cost: 4500, shop: true, inBox: true,
+  }),
+
+  // ---------------- 弓弩 ----------------
+  recurve: W({
+    id: 'recurve', name: '反曲弓', cls: 'bow', model: 'recurve', desc: '传统木质反曲弓：拉得快、跑得快，箭会下坠。',
+    damage: 480, headMult: 3, pellets: 1, hipSpread: 0.02, adsSpread: 0.004,
+    interval: 0.45, auto: false, mag: 1, reload: 0,
+    recoil: 0.008, penetrate: 0, move: 1.0, adsFov: 60,
+    sound: { freq: 170, decay: 0, thump: 110, vol: 0.9, twang: true }, cost: 1500, shop: true, inBox: true,
+    bow: { draw: 0.45 }, arrow: { speed: 62, gravity: 9, len: 0.76 },
+    vm: { hip: [0.04, -0.06, -0.5], adsZ: -0.5, roll: 0.45 },
+  }),
+  compound: W({
+    id: 'compound', name: '复合弓', cls: 'bow', model: 'compound', desc: '带滑轮和瞄准针的复合弓：拉满后箭速快、能穿透一只。',
+    damage: 720, headMult: 3, pellets: 1, hipSpread: 0.014, adsSpread: 0.002,
+    interval: 0.55, auto: false, mag: 1, reload: 0,
+    recoil: 0.01, penetrate: 1, move: 0.97, adsFov: 55,
+    sound: { freq: 150, decay: 0, thump: 95, vol: 1, twang: true }, cost: 2500, shop: true, inBox: true,
+    bow: { draw: 0.65 }, arrow: { speed: 85, gravity: 6, len: 0.74 },
+    vm: { hip: [0.04, -0.07, -0.48], adsZ: -0.46, roll: 0.4 },
+  }),
+  crossbow: W({
+    id: 'crossbow', name: '弩', cls: 'bow', model: 'crossbow', desc: '上弦的狙击弩，配红点瞄具，弩箭一发贯穿两只。',
+    damage: 950, headMult: 3, pellets: 1, hipSpread: 0.03, adsSpread: 0.0015,
+    interval: 0.3, auto: false, mag: 1, reload: 2.2,
+    recoil: 0.02, penetrate: 2, move: 0.95, adsFov: 45,
+    sound: { freq: 130, decay: 0, thump: 80, vol: 1.1, twang: true }, cost: 3200, shop: true, inBox: true,
+    arrow: { speed: 100, gravity: 4, len: 0.42 },
   }),
 
   // ---------------- 爆破 ----------------
