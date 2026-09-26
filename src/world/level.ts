@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { markBarricade } from '../fx/silhouettes';
 import { T, type MapDef, type DoorDef } from './map';
 import * as TX from '../core/textures';
 import { MinHeap, seeded, clamp } from '../core/util';
@@ -514,6 +515,9 @@ export class Level {
       new THREE.MeshStandardMaterial({ map: TX.plankTexture(4), color: 0xa8b6cc, roughness: 0.5, metalness: 0.4 }),
       new THREE.MeshStandardMaterial({ map: TX.plankTexture(5), color: 0xa8b6cc, roughness: 0.45, metalness: 0.45 }),
     ];
+    // 路障写模板缓冲：挡在后面的丧尸会画出透视轮廓
+    for (const m of this.boardMats) markBarricade(m);
+    markBarricade(this.wireMat);
     const boardGeo = new THREE.BoxGeometry(1.25, 0.15, 0.035);
     const diagGeo = new THREE.BoxGeometry(1.45, 0.15, 0.035);
     const layout: [number, number, boolean][] = [

@@ -14,6 +14,7 @@ import { Particles } from './fx/particles';
 import { Decals } from './fx/decals';
 import { Lightning } from './fx/lightning';
 import { Feedback } from './fx/feedback';
+import { Silhouettes } from './fx/silhouettes';
 import { Hud } from './hud';
 import { Shop } from './shop';
 import { WEAPONS, UPGRADES, type UpgradeId } from './weapons/defs';
@@ -39,6 +40,7 @@ export class Game {
   decals: Decals;
   lightning: Lightning;
   feedback: Feedback;
+  silhouettes: Silhouettes;
   turrets: Turrets;
   shop: Shop;
   player: Player;
@@ -62,7 +64,8 @@ export class Game {
   private fwd = new THREE.Vector3();
 
   constructor(canvas: HTMLCanvasElement) {
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+    // stencil：路障透视轮廓要用模板缓冲
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, stencil: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -82,6 +85,7 @@ export class Game {
     this.input = new Input(canvas);
     this.hud = new Hud(this);
     this.feedback = new Feedback(this);
+    this.silhouettes = new Silhouettes(this);
     this.level = new Level(this, buildMap());
     this.particles = new Particles(this.scene);
     this.decals = new Decals(this.scene);
@@ -360,6 +364,7 @@ export class Game {
     this.particles.setViewport(this.renderer.domElement.height, this.camera.fov);
     this.renderer.clear();
     this.renderer.render(this.scene, this.camera);
+    this.silhouettes.render();
     if (this.state !== 'menu') {
       this.renderer.clearDepth();
       this.renderer.render(this.vmScene, this.vmCamera);

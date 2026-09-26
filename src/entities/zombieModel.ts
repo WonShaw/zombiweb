@@ -69,6 +69,8 @@ function pickPose(): Pose {
 export type SpeedType = 'walk' | 'run' | 'sprint';
 /** 丧尸种类：普通 / 精英 / 超精英，外观和属性各不相同 */
 export type ZombieTier = 'normal' | 'elite' | 'super';
+/** 路障透视轮廓用的渲染层（每种丧尸一层，轮廓颜色不同） */
+export const SIL_LAYERS: Record<ZombieTier, number> = { normal: 2, elite: 3, super: 4 };
 
 /** 几何体按“关节在顶部”平移，方便绕关节旋转 */
 function limb(w: number, h: number, d: number, pivotTop = true) {
@@ -261,6 +263,14 @@ export class ZombieModel {
     } else {
       this.root.scale.setScalar(tier === 'elite' ? 1.1 : 1.25);
     }
+  }
+
+  /** 在窗外时打开透视轮廓层（tier），进屋 / 死了传 null 关掉 */
+  setSilhouette(tier: ZombieTier | null) {
+    this.root.traverse((o) => {
+      o.layers.set(0);
+      if (tier) o.layers.enable(SIL_LAYERS[tier]);
+    });
   }
 
   /**

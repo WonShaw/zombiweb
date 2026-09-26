@@ -97,6 +97,7 @@ export class Zombie {
     if (tier === 'super') this.pitch *= 0.72;
     else if (tier === 'elite') this.pitch *= 0.88;
     this.model = new ZombieModel(this, tier);
+    this.model.setSilhouette(tier);
     this.model.root.rotation.order = 'YXZ';
     this.pos.copy(spawn);
     this.pos.y = -1.7;
@@ -109,6 +110,10 @@ export class Zombie {
   get collides() {
     return this.state === 'approach' || this.state === 'tearing' || this.state === 'chasing' || this.state === 'attacking';
   }
+  /** 还在窗外（没翻进来）：被路障挡住时显示透视轮廓 */
+  get outsideWindow() {
+    return this.state === 'rising' || this.state === 'approach' || this.state === 'tearing';
+  }
   get inside() {
     return this.state === 'chasing' || this.state === 'attacking' && this.returnState === 'chasing';
   }
@@ -119,6 +124,7 @@ export class Zombie {
   private setState(s: ZState) {
     this.state = s;
     this.st = 0;
+    this.model.setSilhouette(this.outsideWindow ? this.tier : null);
     if (s === 'chasing') {
       this.bestDist = Infinity;
       this.progressT = 0;
