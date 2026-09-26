@@ -57,6 +57,13 @@ export const WEAPONS: Record<string, WeaponDef> = {
     recoil: 0.014, penetrate: 0, move: 1, adsFov: 62,
     sound: snd(2600, 0.2, 140, 0.55), cost: 300, shop: true, inBox: false,
   }),
+  glock: W({
+    id: 'glock', name: 'Glock 17', cls: 'pistol', model: 'glock', desc: '9mm 聚合物手枪：17 发弹匣、射速快、后坐小。',
+    damage: 38, headMult: 3, pellets: 1, hipSpread: 0.025, adsSpread: 0.0035,
+    interval: 0.105, auto: false, mag: 17, reload: 1.35,
+    recoil: 0.01, penetrate: 0, move: 1, adsFov: 62,
+    sound: snd(3000, 0.16, 125, 0.5), cost: 450, shop: true, inBox: true,
+  }),
   c96: W({
     id: 'c96', name: 'Mauser C96', cls: 'pistol', model: 'c96', desc: '毛瑟“驳壳枪”，可以全自动连射的手枪。',
     damage: 42, headMult: 3, pellets: 1, hipSpread: 0.035, adsSpread: 0.008,
