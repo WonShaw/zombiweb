@@ -72,6 +72,32 @@ body {
   opacity: 0;
 }
 
+/* 光学瞄准镜：开镜到底时整屏只剩一个圆形镜头 + 分划 */
+#scope {
+  --r: min(46vh, 46vw);
+  position: absolute;
+  inset: 0;
+  display: none;
+  pointer-events: none;
+  background: radial-gradient(circle at center, rgba(0, 0, 0, 0) calc(var(--r) - 26px), rgba(0, 0, 0, 0.45) calc(var(--r) - 3px), #000 var(--r));
+}
+#scope.on {
+  display: block;
+}
+#scope svg {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: calc(var(--r) * 2);
+  height: calc(var(--r) * 2);
+  transform: translate(-50%, -50%);
+  display: none;
+}
+#scope.aug svg.aug,
+#scope.acog svg.acog,
+#scope.sniper svg.sniper {
+  display: block;
+}
 #crosshair {
   --gap: 8px;
   position: absolute;

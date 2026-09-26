@@ -56,6 +56,16 @@ export const M = {
   bulb: new THREE.MeshBasicMaterial({ color: 0x2f7fe0, transparent: true, opacity: 0.5, depthWrite: false }),
   electric: new THREE.MeshBasicMaterial({ color: 0xd8f2ff }),
   dial: new THREE.MeshBasicMaterial({ color: 0xd8cfb0 }),
+  /** 瞄具镜片（淡蓝半透明） */
+  lens: new THREE.MeshStandardMaterial({ color: 0x9cc8dc, roughness: 0.05, metalness: 0.3, transparent: true, opacity: 0.2, depthWrite: false }),
+  /** 全息 / 红点瞄具的发光分划 */
+  reticle: new THREE.MeshBasicMaterial({ color: 0xff2a18 }),
+  /** 半透明烟色弹匣（P90、AUG） */
+  smoke: new THREE.MeshStandardMaterial({ color: 0x4a4640, roughness: 0.25, metalness: 0.1, transparent: true, opacity: 0.62, depthWrite: false }),
+  /** 光纤准星（ACOG 顶上的绿色导光条） */
+  fiber: new THREE.MeshBasicMaterial({ color: 0x7dff5a }),
+  /** 沙色聚合物 */
+  tan: matte(0x9c8660, 0.75),
 };
 
 // ---------- 几何工具 ----------

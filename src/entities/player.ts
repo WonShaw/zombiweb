@@ -63,7 +63,9 @@ export class Player {
       return;
     }
     const ads = g.weapons.adsT;
-    const sens = 0.0022 * this.sensitivity * (1 - ads * 0.45);
+    // 开镜降低灵敏度；倍率越高降得越多（狙击镜下不至于一甩就飞）
+    const zoom = Math.min(0.55, g.weapons.current.def.adsFov / 75);
+    const sens = 0.0022 * this.sensitivity * (1 - ads * (1 - zoom));
     this.yaw -= inp.mouseDX * sens;
     this.pitch = clamp(this.pitch - inp.mouseDY * sens, -1.52, 1.52);
 

@@ -37,6 +37,7 @@ export class Hud {
     annSmall: $('ann-small'),
     hit: $('hitmarker'),
     cross: $('crosshair'),
+    scope: $('scope'),
     damage: $('damage'),
     flash: $('flash'),
     hurtdir: $('hurtdir'),
@@ -55,7 +56,23 @@ export class Hud {
   private flashT = 0;
   private puIcons: Record<string, HTMLDivElement> = {};
 
+  private scopeKind: string | null = null;
+
   constructor(private game: Game) {
+    // 三种瞄准镜分划（坐标以镜头中心为原点，半径 500）
+    this.el.scope.innerHTML = `
+      <svg class="aug" viewBox="-500 -500 1000 1000"><circle r="58" fill="none" stroke="#000" stroke-width="9"/><circle r="5" fill="#000"/></svg>
+      <svg class="acog" viewBox="-500 -500 1000 1000">
+        <path d="M-30 26 L0 -4 L30 26" fill="none" stroke="#ff3a20" stroke-width="6" stroke-linejoin="miter" style="filter:drop-shadow(0 0 4px #ff2a10)"/>
+        <line x1="0" y1="30" x2="0" y2="230" stroke="#111" stroke-width="3"/>
+        <g stroke="#111" stroke-width="3"><line x1="-22" y1="80" x2="22" y2="80"/><line x1="-17" y1="125" x2="17" y2="125"/><line x1="-12" y1="170" x2="12" y2="170"/><line x1="-8" y1="210" x2="8" y2="210"/></g>
+      </svg>
+      <svg class="sniper" viewBox="-500 -500 1000 1000">
+        <g stroke="#000"><line x1="-500" y1="0" x2="500" y2="0" stroke-width="2"/><line x1="0" y1="-500" x2="0" y2="500" stroke-width="2"/>
+        <line x1="-500" y1="0" x2="-170" y2="0" stroke-width="10"/><line x1="170" y1="0" x2="500" y2="0" stroke-width="10"/><line x1="0" y1="170" x2="0" y2="500" stroke-width="10"/></g>
+        <g fill="#000">${[-120, -80, -40, 40, 80, 120].map((d) => `<circle cx="${d}" r="4"/><circle cy="${d}" r="4"/>`).join('')}</g>
+        <circle r="3" fill="#e0281a"/>
+      </svg>`;
     for (const k of ['instakill', 'double', 'firesale'] as PowerupKind[]) {
       const d = document.createElement('div');
       d.className = 'pu hidden';
@@ -137,6 +154,13 @@ export class Hud {
     void this.el.round.offsetWidth;
     this.el.round.classList.add('ending');
     setTimeout(() => this.el.round.classList.remove('ending'), 8000);
+  }
+
+  /** 显示 / 隐藏全屏瞄准镜画面 */
+  setScope(kind: string | null) {
+    if (kind === this.scopeKind) return;
+    this.scopeKind = kind;
+    this.el.scope.className = kind ? `on ${kind}` : '';
   }
 
   setPrompt(text: string | null) {

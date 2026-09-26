@@ -41,6 +41,8 @@ export interface WeaponDef {
   inBox: boolean;
   projectile?: { kind: 'ray' | 'rocket'; speed: number; splash: number; splashDamage: number; selfDamage?: number };
   chain?: { targets: number; range: number };
+  /** 光学瞄准镜：开镜到底时换成全屏镜头画面（aug 圆环、acog 红色箭头、sniper 十字线） */
+  scope?: 'aug' | 'acog' | 'sniper';
   /** 第一人称枪模位置覆盖 */
   vm?: { hip: [number, number, number]; adsZ: number };
 }
@@ -122,6 +124,21 @@ export const WEAPONS: Record<string, WeaponDef> = {
     recoil: 0.008, penetrate: 0, move: 1, adsFov: 60,
     sound: snd(3200, 0.13, 160, 0.42), cost: 2200, shop: true, inBox: true,
   }),
+  mp5: W({
+    id: 'mp5', name: 'MP5', cls: 'smg', model: 'mp5', desc: '经典 9mm 冲锋枪，后坐极小、指哪打哪。',
+    damage: 60, headMult: 2.5, pellets: 1, hipSpread: 0.038, adsSpread: 0.009,
+    interval: 0.075, auto: true, mag: 30, reload: 2.0,
+    recoil: 0.007, penetrate: 0, move: 1.03, adsFov: 60,
+    sound: snd(3100, 0.13, 160, 0.44), cost: 1800, shop: true, inBox: true,
+  }),
+  p90: W({
+    id: 'p90', name: 'P90', cls: 'smg', model: 'p90', desc: '无托个人防卫武器，顶置 50 发弹匣 + 反射式瞄具。',
+    damage: 55, headMult: 2.5, pellets: 1, hipSpread: 0.035, adsSpread: 0.008,
+    interval: 0.066, auto: true, mag: 50, reload: 2.7,
+    recoil: 0.0065, penetrate: 0, move: 1.03, adsFov: 55,
+    sound: snd(3400, 0.12, 170, 0.42), cost: 2600, shop: true, inBox: true,
+    vm: { hip: [0.12, -0.13, -0.27], adsZ: -0.14 },
+  }),
 
   // ---------------- 步枪 ----------------
   m14: W({
@@ -173,6 +190,34 @@ export const WEAPONS: Record<string, WeaponDef> = {
     recoil: 0.013, penetrate: 1, move: 0.95, adsFov: 55,
     sound: snd(2400, 0.27, 115, 0.66), cost: 2500, shop: true, inBox: true,
   }),
+  m4a1: W({
+    id: 'm4a1', name: 'M4A1', cls: 'rifle', model: 'm4a1', desc: '现代卡宾枪，全自动 + 全息瞄准镜，稳定好控。',
+    damage: 110, headMult: 2.5, pellets: 1, hipSpread: 0.035, adsSpread: 0.003,
+    interval: 0.075, auto: true, mag: 30, reload: 2.2,
+    recoil: 0.011, penetrate: 1, move: 0.98, adsFov: 55,
+    sound: snd(2650, 0.22, 120, 0.6), cost: 2800, shop: true, inBox: true,
+  }),
+  ak47: W({
+    id: 'ak47', name: 'AK-47', cls: 'rifle', model: 'ak47', desc: '7.62mm 突击步枪，单发伤害高，后坐也大。',
+    damage: 140, headMult: 2.5, pellets: 1, hipSpread: 0.045, adsSpread: 0.006,
+    interval: 0.1, auto: true, mag: 30, reload: 2.4,
+    recoil: 0.017, penetrate: 1, move: 0.95, adsFov: 56,
+    sound: snd(2200, 0.3, 105, 0.72), cost: 2600, shop: true, inBox: true,
+  }),
+  aug: W({
+    id: 'aug', name: 'AUG', cls: 'rifle', model: 'aug', desc: '无托突击步枪，自带 1.5 倍瞄准镜。',
+    damage: 115, headMult: 2.5, pellets: 1, hipSpread: 0.038, adsSpread: 0.002,
+    interval: 0.08, auto: true, mag: 30, reload: 2.6,
+    recoil: 0.01, penetrate: 1, move: 0.97, adsFov: 45, scope: 'aug',
+    sound: snd(2500, 0.24, 118, 0.62), cost: 3000, shop: true, inBox: true,
+  }),
+  hk417: W({
+    id: 'hk417', name: 'HK417', cls: 'rifle', model: 'hk417', desc: '7.62mm 战斗步枪，配 ACOG 瞄准镜，一发穿两只。',
+    damage: 170, headMult: 2.5, pellets: 1, hipSpread: 0.045, adsSpread: 0.0015,
+    interval: 0.1, auto: true, mag: 20, reload: 2.5,
+    recoil: 0.02, penetrate: 2, move: 0.92, adsFov: 26, scope: 'acog',
+    sound: snd(1950, 0.34, 100, 0.78), cost: 3800, shop: true, inBox: true,
+  }),
 
   // ---------------- 霰弹枪 ----------------
   olympia: W({
@@ -195,6 +240,13 @@ export const WEAPONS: Record<string, WeaponDef> = {
     interval: 0.3, auto: false, mag: 8, reload: 3.2,
     recoil: 0.05, penetrate: 0, falloff: [6, 18, 0.35], move: 0.93, adsFov: 64,
     sound: snd(1450, 0.5, 82, 0.9), cost: 2000, shop: true, inBox: true,
+  }),
+  m1014: W({
+    id: 'm1014', name: 'M1014', cls: 'shotgun', model: 'm1014', desc: '现代半自动霰弹枪，射速快、换弹快。',
+    damage: 58, headMult: 1.5, pellets: 8, hipSpread: 0.07, adsSpread: 0.05,
+    interval: 0.22, auto: false, mag: 7, reload: 3.0,
+    recoil: 0.048, penetrate: 0, falloff: [7, 20, 0.35], move: 0.93, adsFov: 62,
+    sound: snd(1500, 0.5, 84, 0.9), cost: 2800, shop: true, inBox: true,
   }),
 
   // ---------------- 机枪 ----------------
@@ -219,6 +271,13 @@ export const WEAPONS: Record<string, WeaponDef> = {
     recoil: 0.012, penetrate: 1, move: 0.85, adsFov: 56,
     sound: snd(2000, 0.3, 110, 0.7), cost: 3500, shop: true, inBox: true,
   }),
+  m249: W({
+    id: 'm249', name: 'M249', cls: 'lmg', model: 'm249', desc: '现代班用机枪，100 发弹箱、射速快。',
+    damage: 125, headMult: 2, pellets: 1, hipSpread: 0.06, adsSpread: 0.01,
+    interval: 0.067, auto: true, mag: 100, reload: 4.8,
+    recoil: 0.011, penetrate: 1, move: 0.86, adsFov: 56,
+    sound: snd(2300, 0.28, 112, 0.7), cost: 4000, shop: true, inBox: true,
+  }),
 
   // ---------------- 狙击枪 ----------------
   kar98k: W({
@@ -235,6 +294,13 @@ export const WEAPONS: Record<string, WeaponDef> = {
     recoil: 0.07, penetrate: 6, move: 0.85, adsFov: 34,
     sound: snd(1300, 0.7, 70, 1.0), cost: 2500, shop: true, inBox: true,
     vm: { hip: [0.13, -0.15, -0.16], adsZ: -0.15 },
+  }),
+  awm: W({
+    id: 'awm', name: 'AWM', cls: 'sniper', model: 'awm', desc: '.338 马格南狙击步枪，高倍镜，一枪贯穿四只。',
+    damage: 1500, headMult: 3, pellets: 1, hipSpread: 0.07, adsSpread: 0.0002,
+    interval: 1.3, auto: false, mag: 5, reload: 3.2,
+    recoil: 0.07, penetrate: 4, move: 0.88, adsFov: 14, scope: 'sniper',
+    sound: snd(1250, 0.75, 65, 1.0), cost: 4500, shop: true, inBox: true,
   }),
 
   // ---------------- 爆破 ----------------

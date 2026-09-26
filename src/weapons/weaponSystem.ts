@@ -340,7 +340,8 @@ export class WeaponSystem {
 
       const busy = this.busy;
       this.updateAim(dt);
-      const wantAds = this.aimOn && !busy && !pl.sprinting;
+      // 带光学镜的枪换弹时要放下镜子
+      const wantAds = this.aimOn && !busy && !pl.sprinting && !(this.current.def.scope && this.reloadT >= 0);
       this.adsT += ((wantAds ? 1 : 0) - this.adsT) * damp(13, dt);
       this.sprintT += ((pl.sprinting ? 1 : 0) - this.sprintT) * damp(10, dt);
 
@@ -621,6 +622,10 @@ export class WeaponSystem {
     const hip = w.def.vm ? new THREE.Vector3(...w.def.vm.hip) : HIP[cls];
     const adsZ = w.def.vm ? w.def.vm.adsZ : ADS_Z[cls];
     const pos = new THREE.Vector3().lerpVectors(hip, new THREE.Vector3(0, -m.sightY, adsZ), ads);
+    // 光学镜开到底：藏起枪模，换成全屏镜头画面
+    const scoped = !!w.def.scope && ads > 0.88 && !pl.dead;
+    this.holder.visible = !scoped;
+    g.hud.setScope(scoped ? w.def.scope! : null);
     // 腰射时枪口略微朝向准星
     let rx = 0, ry = 0.035 * (1 - ads), rz = 0;
 
