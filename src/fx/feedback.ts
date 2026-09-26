@@ -20,6 +20,9 @@ const STREAK_ZH = ['', '', '双杀', '三杀', '四杀', '五杀', '六杀', '�
 const STREAK_EN = ['', '', 'DOUBLE KILL', 'TRIPLE KILL', 'MULTI KILL', 'MEGA KILL', 'ULTRA KILL', 'MONSTER KILL'];
 /** 两次击杀间隔在这个时间内算连杀 */
 const STREAK_WINDOW = 3.5;
+/** 连杀奖励：双杀起每多一杀 +20，封顶 +100 */
+const STREAK_BONUS_STEP = 20;
+const STREAK_BONUS_MAX = 100;
 const MAX_ICONS = 8;
 
 interface Num {
@@ -35,7 +38,7 @@ interface Num {
 }
 
 /**
- * 打击反馈：伤害数字、屏幕中下方的击杀图标 / 连杀徽章、命中与击杀音效。
+ * 打击反馈：伤害数字、屏幕中下方的击杀图标 / 连杀徽章、命中与击杀音效、连杀奖励积分。
  * 只有玩家自己造成的击杀才计入连杀（自动机枪、电网只显示小号伤害数字）。
  */
 export class Feedback {
@@ -45,6 +48,7 @@ export class Feedback {
   private bannerIcons = document.getElementById('kb-icons')!;
   private bannerLabel = document.getElementById('kb-label')!;
   private bannerSub = document.getElementById('kb-sub')!;
+  private bannerBonus = document.getElementById('kb-bonus')!;
   private pool: Num[] = [];
   private streak = 0;
   private sinceKill = 99;
@@ -112,6 +116,9 @@ export class Feedback {
     }
     this.bannerLabel.textContent = zh;
     this.bannerSub.textContent = en;
+    // 连杀奖励积分（双倍积分期间也翻倍，显示实际到账的数）
+    const bonus = n >= 2 ? Math.min((n - 1) * STREAK_BONUS_STEP, STREAK_BONUS_MAX) : 0;
+    this.bannerBonus.textContent = bonus ? `连杀奖励 +${this.game.addPoints(bonus)}` : '';
     this.banner.className = `show tier-${Math.min(n, 8)}${kind === 'head' ? ' head' : ''}`;
     // 重新触发弹出动画
     void this.banner.offsetWidth;

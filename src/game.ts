@@ -263,6 +263,7 @@ export class Game {
     this.stats.earned += n;
     if (merge) this.hud.popupMerged(n);
     else this.hud.popup(n);
+    return n;
   }
 
   spend(cost: number) {
