@@ -1,18 +1,27 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { markBarricade } from '../fx/silhouettes';
-import { T, type MapDef, type DoorDef } from './map';
+import { T, type MapDef, type DoorDef, type Layer, type StairDef } from './map';
 import * as TX from '../core/textures';
 import { MinHeap, seeded, clamp } from '../core/util';
 import type { Game } from '../game';
 import type { Zombie } from '../entities/zombies';
 import type { UpgradeId } from '../weapons/defs';
+import { buildLabScene, labDoorMaterials, type LabScene } from './labScene';
 
 export const WALL_H = 3;
 export const DOOR_TOP = 2.4;
 export const SILL = 0.9;
 export const LINTEL = 2.1;
 export const BOARDS = 6;
+/** 二楼楼板厚度（一楼天花板在层高减去它） */
+export const SLAB = 0.3;
+/** 能直接迈上去的高度差 */
+export const STEP_UP = 0.65;
+/** 超过这个落差就不让走下去（楼梯侧面、回廊边缘） */
+export const LEDGE = 0.9;
+/** 寻路时相邻两格中心高度差的上限（楼梯每格升 0.6 米） */
+const NAV_DH = 0.8;
 /**
  * 路障材质档位：0 普通木板，1 厚木板，2 带铆钉厚木板，3 普通钢板，4 加厚钢板，5 带铆钉加厚钢板，
  * 6 带铁丝网的铆钉加厚钢板（第 5 档 + 铁丝网反伤）
@@ -45,6 +54,9 @@ export interface DoorRT {
   anim: number;
   zones: number[];
   center: THREE.Vector3;
+  layer: Layer;
+  /** 门所在楼层的地面高度 */
+  baseY: number;
 }
 
 export interface WindowRT {
@@ -53,6 +65,11 @@ export interface WindowRT {
   cz: number;
   out: [number, number];
   zone: number;
+  /** 所在楼层：二楼的窗户丧尸要先爬脚手架 */
+  layer: Layer;
+  floorY: number;
+  /** 二楼窗户：脚手架梯子底下的地面点（一楼窗户就是 outside） */
+  climbBase: THREE.Vector3;
   present: boolean[];
   boards: THREE.Mesh[];
   boardBase: { pos: THREE.Vector3; rot: number }[];
@@ -88,7 +105,7 @@ const DIRS8: [number, number][] = [
 ];
 
 /** 按面法线生成带世界坐标 UV 的四边形，拼成一个大网格以减少 draw call */
-class GeoBuilder {
+export class GeoBuilder {
   p: number[] = [];
   n: number[] = [];
   uv: number[] = [];
@@ -127,6 +144,13 @@ class GeoBuilder {
       default: return this.quad([cx, y0, cz], [0, -1, 0], [1, 0, 0], [0, 0, 1], (x1 - x0) / 2, (z1 - z0) / 2, uS, uS);
     }
   }
+  /** 整个盒子的 6 个面 */
+  box(x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, uS = 1, vS = 1) {
+    for (let d = 0; d < 6; d++) this.boxFace(d, x0, y0, z0, x1, y1, z1, uS, vS);
+  }
+  get empty() {
+    return this.p.length === 0;
+  }
   build() {
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(this.p, 3));
@@ -138,13 +162,35 @@ class GeoBuilder {
   }
 }
 
+interface StairRT extends StairDef {
+  /** 沿上楼方向的格数 */
+  len: number;
+}
+
+/**
+ * 关卡：按格子（1 米）存的地图，最多两层。
+ * 寻路 / 区域用“节点”编号：一楼格子 c 的节点是 c，二楼是 N + c；楼梯格只有一个节点（编号 c），高度按斜坡算。
+ */
 export class Level {
   readonly w: number;
   readonly h: number;
+  /** 每层格子数 */
+  readonly N: number;
+  /** 层数（1 或 2） */
+  readonly layers: number;
+  readonly storey: number;
+  /** grids[0] 一楼，grids[1] 二楼 */
+  readonly grids: Uint8Array[];
   readonly grid: Uint8Array;
+  /** 按节点存：箱子 / 家具 / 饮料机的高度 */
   readonly objH: Float32Array;
   readonly doorOf: Int16Array;
   readonly zoneOf: Int16Array;
+  /** 按格子存：属于哪段楼梯（-1 不是楼梯） */
+  readonly stairOf: Int16Array;
+  /** 按格子存：楼梯格中心的地面高度 */
+  readonly stairH: Float32Array;
+  readonly stairs: StairRT[] = [];
   zoneCount = 0;
   zoneActive: boolean[] = [];
   startZone = 0;
@@ -157,6 +203,8 @@ export class Level {
   lamps: { light: THREE.PointLight; glow: THREE.Sprite; bulb: THREE.MeshBasicMaterial; base: number; flicker: boolean; ft: number; pos: THREE.Vector3 }[] = [];
   root = new THREE.Group();
   private boardMats: THREE.MeshStandardMaterial[] = [];
+  /** 白天地图的场景（灯光、天空、阴影） */
+  lab: LabScene | null = null;
   /** 路障升级等级（全局，对所有窗户生效） */
   upgrades: Record<UpgradeId, number> = { armor: 0, shock: 0, repair: 0 };
 
@@ -164,23 +212,49 @@ export class Level {
     this.w = def.w;
     this.h = def.h;
     const n = this.w * this.h;
-    this.grid = def.grid.slice();
-    this.objH = new Float32Array(n);
-    this.doorOf = new Int16Array(n).fill(-1);
-    this.zoneOf = new Int16Array(n).fill(-1);
-    this.flow = new Float32Array(n).fill(Infinity);
-    this.closed = new Uint8Array(n);
+    this.N = n;
+    this.layers = def.grid2 ? 2 : 1;
+    this.storey = def.storey;
+    this.grids = [def.grid.slice()];
+    if (def.grid2) this.grids.push(def.grid2.slice());
+    this.grid = this.grids[0];
+    this.objH = new Float32Array(n * 2);
+    this.doorOf = new Int16Array(n * 2).fill(-1);
+    this.zoneOf = new Int16Array(n * 2).fill(-1);
+    this.stairOf = new Int16Array(n).fill(-1);
+    this.stairH = new Float32Array(n);
+    this.flow = new Float32Array(n * 2).fill(Infinity);
+    this.closed = new Uint8Array(n * 2);
 
-    for (const c of def.crates) this.objH[this.idx(c.x, c.z)] = c.h;
-    for (const p of def.perks) this.objH[this.idx(p.x, p.z)] = 2.2;
-    for (const [x, z] of def.box.cells) this.objH[this.idx(x, z)] = 1.0;
+    const node = (x: number, z: number, l = 0) => l * n + this.idx(x, z);
+    for (const c of def.crates) this.objH[node(c.x, c.z, c.layer)] = c.h;
+    for (const p of def.props ?? []) {
+      for (let dz = 0; dz < (p.d ?? 1); dz++) for (let dx = 0; dx < (p.w ?? 1); dx++) this.objH[node(p.x + dx, p.z + dz, p.layer)] = p.h;
+    }
+    for (const p of def.perks) this.objH[node(p.x, p.z, p.layer)] = 2.2;
+    for (const [x, z] of def.box.cells) this.objH[node(x, z, def.box.layer)] = 1.0;
+    (def.stairs ?? []).forEach((s, k) => {
+      const len = s.dir[0] ? s.x1 - s.x0 + 1 : s.z1 - s.z0 + 1;
+      this.stairs.push({ ...s, len });
+      for (let z = s.z0; z <= s.z1; z++) {
+        for (let x = s.x0; x <= s.x1; x++) {
+          const i = this.idx(x, z);
+          this.stairOf[i] = k;
+          this.stairH[i] = this.stairHeight(k, x + 0.5, z + 0.5);
+        }
+      }
+    });
 
     this.computeZones();
     this.buildDoors();
     this.buildWindows();
-    this.buildStatic();
-    this.buildLamps();
-    this.buildOutside();
+    if (def.theme === 'day') {
+      this.lab = buildLabScene(game, this);
+    } else {
+      this.buildStatic();
+      this.buildLamps();
+      this.buildOutside();
+    }
     game.scene.add(this.root);
   }
 
@@ -192,48 +266,119 @@ export class Level {
   inBounds(x: number, z: number) {
     return x >= 0 && z >= 0 && x < this.w && z < this.h;
   }
-  typeAt(x: number, z: number) {
-    return this.inBounds(x, z) ? this.grid[this.idx(x, z)] : T.VOID;
+  typeAt(x: number, z: number, layer = 0) {
+    return this.inBounds(x, z) && layer < this.layers ? this.grids[layer][this.idx(x, z)] : T.VOID;
+  }
+  /** 站在高度 y 的东西算哪一层 */
+  layerAt(y: number): Layer {
+    return this.layers > 1 && y >= this.storey * 0.5 ? 1 : 0;
   }
 
-  /** 移动是否被阻挡（玩家和丧尸共用）。越界 = 室外空地，不阻挡 */
-  isBlocked(x: number, z: number) {
-    if (!this.inBounds(x, z)) return false;
-    const i = this.idx(x, z);
-    const t = this.grid[i];
-    if (t === T.FLOOR || t === T.VOID) return false;
-    if (t === T.DOOR) return !this.doors[this.doorOf[i]].open;
-    return true;
+  /** 第 k 段楼梯在 (x, z) 处的斜坡高度 */
+  stairHeight(k: number, x: number, z: number) {
+    const s = this.stairs[k];
+    let t: number;
+    if (s.dir[0] > 0) t = (x - s.x0) / s.len;
+    else if (s.dir[0] < 0) t = (s.x1 + 1 - x) / s.len;
+    else if (s.dir[1] > 0) t = (z - s.z0) / s.len;
+    else t = (s.z1 + 1 - z) / s.len;
+    return this.storey * clamp(t, 0, 1);
   }
 
-  /** 室内寻路是否可通行 */
-  private navOk(i: number) {
-    const t = this.grid[i];
+  /** 脚下地面高度：楼梯按斜坡，其余按所在楼层（refY 是当前脚下的高度，用来判断在哪层） */
+  groundAt(x: number, z: number, refY: number) {
+    const cx = Math.floor(x), cz = Math.floor(z);
+    if (this.inBounds(cx, cz)) {
+      const s = this.stairOf[this.idx(cx, cz)];
+      if (s >= 0) return this.stairHeight(s, x, z);
+    }
+    return this.layerAt(refY) * this.storey;
+  }
+
+  /**
+   * 格子 (cx, cz) 在点 (qx, qz) 处能不能走进去。越界 = 室外空地，不阻挡。
+   * feetY：脚底高度（跳起来时更高，能迈上更高的台阶）；refY：脚下地面高度（决定在哪层、落差多大）。
+   */
+  private blockedAt(cx: number, cz: number, qx: number, qz: number, feetY: number, refY: number) {
+    if (!this.inBounds(cx, cz)) return false;
+    const i = this.idx(cx, cz);
+    const s = this.stairOf[i];
+    let h: number;
+    if (s >= 0) h = this.stairHeight(s, qx, qz);
+    else {
+      const L = this.layerAt(refY);
+      const t = this.grids[L][i];
+      if (t === T.DOOR) {
+        if (!this.doors[this.doorOf[L * this.N + i]].open) return true;
+      } else if (t !== T.FLOOR && t !== T.VOID) return true;
+      h = L * this.storey;
+    }
+    return h > feetY + STEP_UP || h < refY - LEDGE;
+  }
+
+  /** 室内寻路是否可通行（节点编号） */
+  private navOk(n: number) {
+    const L = n >= this.N ? 1 : 0;
+    const t = this.grids[L][n - L * this.N];
     if (t === T.FLOOR) return true;
-    if (t === T.DOOR) return this.doors[this.doorOf[i]].open;
+    if (t === T.DOOR) return this.doors[this.doorOf[n]].open;
     return false;
   }
 
-  zoneAt(x: number, z: number) {
-    const cx = Math.floor(x), cz = Math.floor(z);
-    if (!this.inBounds(cx, cz)) return -1;
-    return this.zoneOf[this.idx(cx, cz)];
+  /** 格子 c 里和高度 h 连得上的可走节点，没有返回 -1 */
+  private navNode(c: number, h: number) {
+    if (this.stairOf[c] >= 0) return Math.abs(this.stairH[c] - h) <= NAV_DH ? c : -1;
+    if (Math.abs(h) <= NAV_DH && this.navOk(c)) return c;
+    if (this.layers > 1 && Math.abs(h - this.storey) <= NAV_DH && this.navOk(this.N + c)) return this.N + c;
+    return -1;
   }
 
-  /** 圆与网格的碰撞：把圆推出所有重叠的实心格子 */
-  collideCircle(p: { x: number; z: number }, r: number) {
+  /** 位置对应的节点（楼梯格不分层） */
+  nodeAt(x: number, y: number, z: number) {
+    const cx = Math.floor(x), cz = Math.floor(z);
+    if (!this.inBounds(cx, cz)) return -1;
+    const c = this.idx(cx, cz);
+    if (this.stairOf[c] >= 0) return c;
+    return this.layerAt(y) * this.N + c;
+  }
+  /** 节点中心的地面高度 */
+  nodeH(n: number) {
+    if (n >= this.N) return this.storey;
+    return this.stairOf[n] >= 0 ? this.stairH[n] : 0;
+  }
+  nodeCell(n: number) {
+    return n >= this.N ? n - this.N : n;
+  }
+
+  /** 半径 r 的圆有没有压到楼梯格 */
+  touchesStair(x: number, z: number, r: number) {
+    for (let cz = Math.floor(z - r); cz <= Math.floor(z + r); cz++) {
+      for (let cx = Math.floor(x - r); cx <= Math.floor(x + r); cx++) {
+        if (this.inBounds(cx, cz) && this.stairOf[this.idx(cx, cz)] >= 0) return true;
+      }
+    }
+    return false;
+  }
+
+  zoneAt(x: number, y: number, z: number) {
+    const n = this.nodeAt(x, y, z);
+    return n < 0 ? -1 : this.zoneOf[n];
+  }
+
+  /** 圆与网格的碰撞：把圆推出所有走不进去的格子 */
+  collideCircle(p: { x: number; z: number }, r: number, feetY = 0, refY = feetY) {
     for (let iter = 0; iter < 3; iter++) {
       let moved = false;
       const x0 = Math.floor(p.x - r), x1 = Math.floor(p.x + r);
       const z0 = Math.floor(p.z - r), z1 = Math.floor(p.z + r);
       for (let cz = z0; cz <= z1; cz++) {
         for (let cx = x0; cx <= x1; cx++) {
-          if (!this.isBlocked(cx, cz)) continue;
           const qx = clamp(p.x, cx, cx + 1);
           const qz = clamp(p.z, cz, cz + 1);
           const dx = p.x - qx, dz = p.z - qz;
           const d2 = dx * dx + dz * dz;
           if (d2 >= r * r) continue;
+          if (!this.blockedAt(cx, cz, qx, qz, feetY, refY)) continue;
           if (d2 > 1e-10) {
             const d = Math.sqrt(d2);
             p.x += (dx / d) * (r - d);
@@ -254,58 +399,78 @@ export class Level {
     }
   }
 
-  circleBlocked(x: number, z: number, r: number) {
+  circleBlocked(x: number, z: number, r: number, feetY = 0, refY = feetY) {
     const x0 = Math.floor(x - r), x1 = Math.floor(x + r);
     const z0 = Math.floor(z - r), z1 = Math.floor(z + r);
     for (let cz = z0; cz <= z1; cz++) {
       for (let cx = x0; cx <= x1; cx++) {
-        if (!this.isBlocked(cx, cz)) continue;
         const qx = clamp(x, cx, cx + 1), qz = clamp(z, cz, cz + 1);
-        if ((x - qx) ** 2 + (z - qz) ** 2 < r * r) return true;
+        if ((x - qx) ** 2 + (z - qz) ** 2 >= r * r) continue;
+        if (this.blockedAt(cx, cz, qx, qz, feetY, refY)) return true;
       }
     }
     return false;
   }
 
-  /** 以半径 r 的圆扫过线段是否畅通 */
-  segmentClear(ax: number, az: number, bx: number, bz: number, r: number) {
+  /**
+   * 以半径 r 的圆从 a 走到 b 是否畅通：按真实地形一步步“走”过去（上下楼梯时高度跟着变），
+   * 从高度 ya 出发，走到终点时的高度要和 yb 对得上（不会把楼上的点当成走得到的）。
+   */
+  segmentClear(ax: number, az: number, bx: number, bz: number, r: number, ya = 0, yb = ya) {
     const len = Math.hypot(bx - ax, bz - az);
     const steps = Math.max(1, Math.ceil(len / 0.25));
+    let y = ya;
     for (let i = 1; i <= steps; i++) {
       const t = i / steps;
-      if (this.circleBlocked(ax + (bx - ax) * t, az + (bz - az) * t, r)) return false;
+      const x = ax + (bx - ax) * t, z = az + (bz - az) * t;
+      if (this.circleBlocked(x, z, r, y, y)) return false;
+      y = this.groundAt(x, z, y);
     }
-    return true;
+    return Math.abs(y - yb) < 0.6;
   }
 
   // ---------- 子弹射线（网格 DDA，考虑高度） ----------
 
+  /** 一格里所有实心的高度区间（两层叠起来，含二楼楼板和楼梯） */
   private solidSpans(x: number, z: number, out: number[]): number {
     const i = this.idx(x, z);
-    const t = this.grid[i];
-    switch (t) {
-      case T.WALL:
-        out[0] = 0; out[1] = WALL_H;
-        return 1;
-      case T.DOOR:
-        if (this.doors[this.doorOf[i]].open) {
-          out[0] = DOOR_TOP; out[1] = WALL_H;
-        } else {
-          out[0] = 0; out[1] = WALL_H;
-        }
-        return 1;
-      case T.WINDOW:
-        out[0] = 0; out[1] = SILL; out[2] = LINTEL; out[3] = WALL_H;
-        return 2;
-      case T.CRATE:
-      case T.OBJECT:
-        out[0] = 0; out[1] = this.objH[i];
-        return 1;
-      default:
-        return 0;
+    const S = this.storey;
+    let n = 0;
+    const push = (a: number, b: number) => {
+      out[n * 2] = a;
+      out[n * 2 + 1] = b;
+      n++;
+    };
+    for (let L = 0; L < this.layers; L++) {
+      const y0 = L * S, y1 = y0 + S;
+      const t = this.grids[L][i];
+      switch (t) {
+        case T.WALL:
+        case T.GLASS:
+          push(y0, y1);
+          break;
+        case T.DOOR:
+          if (this.doors[this.doorOf[L * this.N + i]].open) push(y0 + DOOR_TOP, y1);
+          else push(y0, y1);
+          break;
+        case T.WINDOW:
+          push(y0, y0 + SILL);
+          push(y0 + LINTEL, y1);
+          break;
+        case T.CRATE:
+        case T.OBJECT:
+          push(y0, y0 + this.objH[L * this.N + i]);
+          break;
+        case T.STAIR:
+          if (L === 0) push(0, this.stairH[i]);
+          break;
+      }
+      // 二楼楼板（挑空、楼梯井、室外没有）
+      if (L === 1 && t !== T.OPEN && t !== T.STAIR && t !== T.VOID) push(S - SLAB, S);
     }
+    return n;
   }
-  private spans = [0, 0, 0, 0];
+  private spans = new Array(12).fill(0);
 
   raycast(o: THREE.Vector3, d: THREE.Vector3, maxDist: number, out: RayHit): boolean {
     let cx = Math.floor(o.x), cz = Math.floor(o.z);
@@ -315,6 +480,7 @@ export class Level {
     let tMaxZ = adz > 1e-9 ? (d.z > 0 ? cz + 1 - o.z : o.z - cz) / adz : Infinity;
     const tdx = adx > 1e-9 ? 1 / adx : Infinity;
     const tdz = adz > 1e-9 ? 1 / adz : Infinity;
+    const top = this.layers * this.storey;
     let tEnter = 0;
     let axis = -1;
     for (let guard = 0; guard < 512; guard++) {
@@ -341,8 +507,8 @@ export class Level {
             if (t < best) { best = t; bnx = 0; bny = -1; bnz = 0; }
           }
         }
-        if (this.grid[this.idx(cx, cz)] !== T.VOID && yOut > WALL_H && yIn <= WALL_H) {
-          const t = (WALL_H - o.y) / d.y;
+        if (this.grid[this.idx(cx, cz)] !== T.VOID && yOut > top && yIn <= top) {
+          const t = (top - o.y) / d.y;
           if (t < best) { best = t; bnx = 0; bny = -1; bnz = 0; }
         }
       }
@@ -377,39 +543,48 @@ export class Level {
 
   // ---------- 流场寻路 ----------
 
-  updateFlow(px: number, pz: number, force = false) {
-    const cx = Math.floor(px), cz = Math.floor(pz);
-    if (!this.inBounds(cx, cz)) return;
-    const c = this.idx(cx, cz);
-    if (!force && c === this.flowCell) return;
-    if (!this.navOk(c)) return;
-    this.flowCell = c;
+  /** 以玩家所在节点为起点做 Dijkstra（py 是玩家脚下地面高度） */
+  updateFlow(px: number, py: number, pz: number, force = false) {
+    const start = this.nodeAt(px, py, pz);
+    if (start < 0) return;
+    if (!force && start === this.flowCell) return;
+    if (this.stairOf[this.nodeCell(start)] < 0 && !this.navOk(start)) return;
+    this.flowCell = start;
     const flow = this.flow;
     flow.fill(Infinity);
     this.closed.fill(0);
     const heap = this.heap;
     heap.clear();
-    flow[c] = 0;
-    heap.push(0, c);
+    flow[start] = 0;
+    heap.push(0, start);
     while (heap.size > 0) {
       const cur = heap.pop();
       if (this.closed[cur]) continue;
       this.closed[cur] = 1;
-      const x = cur % this.w, z = (cur / this.w) | 0;
       const dc = flow[cur];
-      for (let k = 0; k < 8; k++) {
-        const [dx, dz] = DIRS8[k];
-        const nx = x + dx, nz = z + dz;
-        if (!this.inBounds(nx, nz)) continue;
-        const ni = this.idx(nx, nz);
-        if (!this.navOk(ni)) continue;
-        if (k >= 4 && (!this.navOk(this.idx(x + dx, z)) || !this.navOk(this.idx(x, z + dz)))) continue;
-        const nd = dc + (k >= 4 ? 1.4142 : 1);
+      this.forNeighbors(cur, (ni, cost) => {
+        const nd = dc + cost;
         if (nd < flow[ni]) {
           flow[ni] = nd;
           heap.push(nd, ni);
         }
-      }
+      });
+    }
+  }
+
+  /** 节点的 8 个方向邻居（斜走不能切墙角；上下楼只能走楼梯） */
+  private forNeighbors(n: number, fn: (ni: number, cost: number) => void) {
+    const c = this.nodeCell(n);
+    const x = c % this.w, z = (c / this.w) | 0;
+    const h = this.nodeH(n);
+    for (let k = 0; k < 8; k++) {
+      const [dx, dz] = DIRS8[k];
+      const nx = x + dx, nz = z + dz;
+      if (!this.inBounds(nx, nz)) continue;
+      const ni = this.navNode(this.idx(nx, nz), h);
+      if (ni < 0) continue;
+      if (k >= 4 && (this.navNode(this.idx(x + dx, z), h) < 0 || this.navNode(this.idx(x, z + dz), h) < 0)) continue;
+      fn(ni, k >= 4 ? 1.4142 : 1);
     }
   }
 
@@ -417,45 +592,49 @@ export class Level {
     this.flowCell = -1;
   }
 
-  /** 流场里比当前格更接近玩家的最佳相邻格 */
-  bestNeighbor(i: number): number {
-    const x = i % this.w, z = (i / this.w) | 0;
+  /** 流场里比当前节点更接近玩家的最佳相邻节点 */
+  bestNeighbor(n: number): number {
     let best = -1;
-    let bd = this.inBounds(x, z) ? this.flow[i] : Infinity;
-    for (let k = 0; k < 8; k++) {
-      const [dx, dz] = DIRS8[k];
-      const nx = x + dx, nz = z + dz;
-      if (!this.inBounds(nx, nz)) continue;
-      const ni = this.idx(nx, nz);
-      if (!this.navOk(ni)) continue;
-      if (k >= 4 && (!this.navOk(this.idx(x + dx, z)) || !this.navOk(this.idx(x, z + dz)))) continue;
+    let bd = this.flow[n];
+    this.forNeighbors(n, (ni) => {
       if (this.flow[ni] < bd) {
         bd = this.flow[ni];
         best = ni;
       }
-    }
+    });
     return best;
   }
 
   // ---------- 区域 / 门 / 窗 ----------
 
-  private computeZones() {
-    const { w, h, grid } = this;
+  /** 格子 c 在高度 h 处属于房间的节点（地板、家具、饮料机、楼梯），没有返回 -1 */
+  private roomNode(c: number, h: number) {
     const roomy = (t: number) => t === T.FLOOR || t === T.CRATE || t === T.OBJECT;
+    if (this.stairOf[c] >= 0) return Math.abs(this.stairH[c] - h) <= NAV_DH ? c : -1;
+    if (Math.abs(h) <= NAV_DH && roomy(this.grids[0][c])) return c;
+    if (this.layers > 1 && Math.abs(h - this.storey) <= NAV_DH && roomy(this.grids[1][c])) return this.N + c;
+    return -1;
+  }
+
+  private computeZones() {
+    const { w, N } = this;
     let zone = 0;
     const stack: number[] = [];
-    for (let i = 0; i < w * h; i++) {
-      if (!roomy(grid[i]) || this.zoneOf[i] >= 0) continue;
-      stack.push(i);
-      this.zoneOf[i] = zone;
+    for (let n = 0; n < N * this.layers; n++) {
+      const c = this.nodeCell(n);
+      if (this.zoneOf[n] >= 0 || this.roomNode(c, n >= N ? this.storey : this.stairOf[c] >= 0 ? this.stairH[c] : 0) !== n) continue;
+      stack.push(n);
+      this.zoneOf[n] = zone;
       while (stack.length) {
-        const c = stack.pop()!;
-        const x = c % w, z = (c / w) | 0;
+        const cur = stack.pop()!;
+        const cc = this.nodeCell(cur);
+        const x = cc % w, z = (cc / w) | 0;
+        const h = this.nodeH(cur);
         for (let k = 0; k < 4; k++) {
           const nx = x + DIRS8[k][0], nz = z + DIRS8[k][1];
           if (!this.inBounds(nx, nz)) continue;
-          const ni = this.idx(nx, nz);
-          if (roomy(grid[ni]) && this.zoneOf[ni] < 0) {
+          const ni = this.roomNode(this.idx(nx, nz), h);
+          if (ni >= 0 && this.zoneOf[ni] < 0) {
             this.zoneOf[ni] = zone;
             stack.push(ni);
           }
@@ -465,28 +644,36 @@ export class Level {
     }
     this.zoneCount = zone;
     this.zoneActive = new Array(zone).fill(false);
-    this.startZone = this.zoneOf[this.idx(Math.floor(this.def.start.x), Math.floor(this.def.start.z))];
+    this.startZone = this.zoneOf[this.nodeAt(this.def.start.x, 0, this.def.start.z)];
     this.zoneActive[this.startZone] = true;
   }
 
   private buildDoors() {
-    const doorTex = TX.doorTexture();
-    const mat = new THREE.MeshStandardMaterial({ map: doorTex, roughness: 0.85 });
-    const sideMat = new THREE.MeshStandardMaterial({ color: 0x3a2a1c, roughness: 0.9 });
+    const day = this.def.theme === 'day';
+    const [mat, sideMat] = day
+      ? labDoorMaterials()
+      : [
+          new THREE.MeshStandardMaterial({ map: TX.doorTexture(), roughness: 0.85 }),
+          new THREE.MeshStandardMaterial({ color: 0x3a2a1c, roughness: 0.9 }),
+        ];
     this.def.doors.forEach((def, index) => {
+      const layer: Layer = def.layer ?? 0;
+      const baseY = layer * this.storey;
       const alongX = def.cells[0][0] !== def.cells[def.cells.length - 1][0];
       const zones = new Set<number>();
       let sx = 0, sz = 0;
       for (const [x, z] of def.cells) {
-        this.doorOf[this.idx(x, z)] = index;
+        this.doorOf[layer * this.N + this.idx(x, z)] = index;
         sx += x + 0.5;
         sz += z + 0.5;
-        const n1 = alongX ? this.zoneOf[this.idx(x, z - 1)] : this.zoneOf[this.idx(x - 1, z)];
-        const n2 = alongX ? this.zoneOf[this.idx(x, z + 1)] : this.zoneOf[this.idx(x + 1, z)];
-        if (n1 >= 0) zones.add(n1);
-        if (n2 >= 0) zones.add(n2);
+        const a = alongX ? this.idx(x, z - 1) : this.idx(x - 1, z);
+        const b = alongX ? this.idx(x, z + 1) : this.idx(x + 1, z);
+        for (const c of [a, b]) {
+          const n = this.roomNode(c, baseY);
+          if (n >= 0 && this.zoneOf[n] >= 0) zones.add(this.zoneOf[n]);
+        }
       }
-      const center = new THREE.Vector3(sx / def.cells.length, 0, sz / def.cells.length);
+      const center = new THREE.Vector3(sx / def.cells.length, baseY, sz / def.cells.length);
       const group = new THREE.Group();
       group.position.copy(center);
       if (!alongX) group.rotation.y = Math.PI / 2;
@@ -495,10 +682,11 @@ export class Level {
         const leaf = new THREE.Mesh(new THREE.BoxGeometry(0.98, DOOR_TOP - 0.02, 0.2), [sideMat, sideMat, sideMat, sideMat, mat, mat]);
         leaf.position.set(k - (n - 1) / 2, DOOR_TOP / 2, 0);
         if (k % 2 === 1) leaf.scale.x = -1;
+        if (day) leaf.castShadow = leaf.receiveShadow = true;
         group.add(leaf);
       }
       this.root.add(group);
-      this.doors.push({ def, index, open: false, group, anim: 0, zones: [...zones], center });
+      this.doors.push({ def, index, open: false, group, anim: 0, zones: [...zones], center, layer, baseY });
     });
   }
 
@@ -508,7 +696,7 @@ export class Level {
     d.anim = 0.0001;
     for (const z of d.zones) this.zoneActive[z] = true;
     this.invalidateFlow();
-    this.game.audio.doorOpen(new THREE.Vector3(d.center.x, 1.5, d.center.z));
+    this.game.audio.doorOpen(new THREE.Vector3(d.center.x, d.baseY + 1.5, d.center.z));
   }
 
   private buildWindows() {
@@ -523,6 +711,7 @@ export class Level {
     // 路障写模板缓冲：挡在后面的丧尸会画出透视轮廓
     for (const m of this.boardMats) markBarricade(m);
     markBarricade(this.wireMat);
+    const day = this.def.theme === 'day';
     const boardGeo = new THREE.BoxGeometry(1.25, 0.15, 0.035);
     const diagGeo = new THREE.BoxGeometry(1.45, 0.15, 0.035);
     const layout: [number, number, boolean][] = [
@@ -533,17 +722,21 @@ export class Level {
       [0.28, 0.08, false],
       [0.46, -0.05, false],
     ];
-    this.def.windows.forEach(([cx, cz], index) => {
+    this.def.windows.forEach(([cx, cz, l], index) => {
+      const layer: Layer = l ?? 0;
+      const floorY = layer * this.storey;
       let out: [number, number] = [0, 1];
       for (const [dx, dz] of DIRS8.slice(0, 4)) {
-        if (this.typeAt(cx + dx, cz + dz) === T.VOID) out = [dx, dz];
+        if (this.typeAt(cx + dx, cz + dz, layer) === T.VOID) out = [dx, dz];
       }
-      const center = new THREE.Vector3(cx + 0.5, 0, cz + 0.5);
-      const inside = new THREE.Vector3(center.x - out[0] * 1.0, 0, center.z - out[1] * 1.0);
-      const outside = new THREE.Vector3(center.x + out[0] * 1.05, 0, center.z + out[1] * 1.05);
-      const zone = this.zoneOf[this.idx(cx - out[0], cz - out[1])];
+      const center = new THREE.Vector3(cx + 0.5, floorY, cz + 0.5);
+      const inside = new THREE.Vector3(center.x - out[0] * 1.0, floorY, center.z - out[1] * 1.0);
+      const outside = new THREE.Vector3(center.x + out[0] * 1.05, floorY, center.z + out[1] * 1.05);
+      const climbBase = layer ? new THREE.Vector3(center.x + out[0] * 1.95, 0, center.z + out[1] * 1.95) : outside.clone();
+      const zn = this.roomNode(this.idx(cx - out[0], cz - out[1]), floorY);
+      const zone = zn >= 0 ? this.zoneOf[zn] : -1;
       const group = new THREE.Group();
-      group.position.set(center.x - out[0] * 0.53, (SILL + LINTEL) / 2, center.z - out[1] * 0.53);
+      group.position.set(center.x - out[0] * 0.53, floorY + (SILL + LINTEL) / 2, center.z - out[1] * 0.53);
       group.rotation.y = Math.atan2(-out[0], -out[1]);
       const boards: THREE.Mesh[] = [];
       const boardBase: { pos: THREE.Vector3; rot: number }[] = [];
@@ -552,13 +745,14 @@ export class Level {
         const pos = new THREE.Vector3((k % 2 ? 1 : -1) * 0.02, y, 0.012 * k);
         m.position.copy(pos);
         m.rotation.z = rot;
+        if (day) m.castShadow = m.receiveShadow = true;
         group.add(m);
         boards.push(m);
         boardBase.push({ pos, rot });
       });
       this.root.add(group);
       this.windows.push({
-        index, cx, cz, out, zone,
+        index, cx, cz, out, zone, layer, floorY, climbBase,
         present: new Array(BOARDS).fill(true),
         boards, boardBase,
         hp: new Array(BOARDS).fill(1),
@@ -585,7 +779,7 @@ export class Level {
   }
 
   private boardPos(w: WindowRT) {
-    return new THREE.Vector3(w.center.x - w.out[0] * 0.5, 1.5, w.center.z - w.out[1] * 0.5);
+    return new THREE.Vector3(w.center.x - w.out[0] * 0.5, w.floorY + 1.5, w.center.z - w.out[1] * 0.5);
   }
 
   /**
@@ -654,7 +848,7 @@ export class Level {
       w.hp[i] = max;
       w.boardAnim[i] = { t: 0, mode: 3 };
     }
-    if (!silent) this.game.audio.hammer(new THREE.Vector3(w.center.x, 1.5, w.center.z));
+    if (!silent) this.game.audio.hammer(new THREE.Vector3(w.center.x, w.floorY + 1.5, w.center.z));
     return true;
   }
 
@@ -899,17 +1093,21 @@ export class Level {
   // ---------- 每帧 ----------
 
   update(dt: number) {
+    // 门和木板在动时，白天地图要重画阴影
+    let moving = false;
     for (const d of this.doors) {
       if (d.anim <= 0 || !d.group.visible) continue;
+      moving = true;
       d.anim += dt;
       const t = Math.min(1, d.anim / 1.1);
-      d.group.position.y = t * t * (DOOR_TOP + 0.3);
+      d.group.position.y = d.baseY + t * t * (DOOR_TOP + 0.3);
       if (t >= 1) d.group.visible = false;
     }
     for (const w of this.windows) {
       for (let i = 0; i < BOARDS; i++) {
         const a = w.boardAnim[i];
         if (a.mode === 0) continue;
+        moving = true;
         const b = w.boards[i];
         const base = w.boardBase[i];
         if (a.mode === 1) {
@@ -944,6 +1142,7 @@ export class Level {
       }
       this.updateWindowUpgrades(w, dt);
     }
+    if (this.lab) this.lab.update(dt, moving);
     for (const l of this.lamps) {
       if (!l.flicker) continue;
       l.ft -= dt;
@@ -1030,6 +1229,7 @@ export class Level {
 
   /** 位置处的大致亮度（0..1），用来给第一人称枪模调光 */
   lightLevelAt(p: THREE.Vector3) {
+    if (this.lab) return this.lab.lightLevelAt(p);
     let s = 0;
     for (const l of this.lamps) {
       const d2 = (l.pos.x - p.x) ** 2 + (l.pos.z - p.z) ** 2;

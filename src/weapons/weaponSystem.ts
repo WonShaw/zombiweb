@@ -549,10 +549,11 @@ export class WeaponSystem {
       if (z.dead || z.state === 'rising' || z.state === 'approach') continue;
       const dx = z.pos.x - p.x, dz = z.pos.z - p.z;
       const d = Math.hypot(dx, dz);
-      if (d > bestD) continue;
+      if (d > bestD || Math.abs(z.pos.y - g.player.groundY) > 1.2) continue;
       if (d > 0.5 && (dx * fx + dz * fz) / d < 0.55) continue;
       // 隔着墙砍不到（窗户可以）
-      if (d > 0.5 && !g.level.segmentClear(p.x, p.z, z.pos.x - dx / d * 0.4, z.pos.z - dz / d * 0.4, 0.05) && z.state !== 'tearing' && z.state !== 'attacking') continue;
+      const gy = g.player.groundY;
+      if (d > 0.5 && !g.level.segmentClear(p.x, p.z, z.pos.x - dx / d * 0.4, z.pos.z - dz / d * 0.4, 0.05, gy, z.pos.y) && z.state !== 'tearing' && z.state !== 'attacking') continue;
       best = z;
       bestD = d;
     }

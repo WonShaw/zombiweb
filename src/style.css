@@ -483,6 +483,32 @@ button.primary {
 button.primary:hover {
   background: linear-gradient(#a8160c, #6e0c06);
 }
+.map-pick {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin: 0 0 6px;
+}
+.map-pick button {
+  margin: 0;
+  padding: 11px 12px;
+  text-align: left;
+  letter-spacing: 0.04em;
+  font-size: 15px;
+  line-height: 1.35;
+}
+.map-pick button small {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  letter-spacing: 0;
+  color: var(--muted);
+}
+.map-pick button.on {
+  background: rgba(196, 38, 26, 0.22);
+  border-color: #c4261a;
+  box-shadow: inset 0 0 0 1px rgba(196, 38, 26, 0.6);
+}
 .controls {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));

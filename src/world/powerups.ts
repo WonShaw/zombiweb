@@ -60,7 +60,7 @@ export class Powerups {
     group.add(glow);
     const icon = new THREE.Mesh(this.planeGeo, this.icons[k]);
     group.add(icon);
-    group.position.set(pos.x, 1.0, pos.z);
+    group.position.set(pos.x, pos.y + 1.0, pos.z);
     this.game.scene.add(group);
     this.drops.push({ kind: k, group, pos: pos.clone(), t: 0 });
     this.game.audio.powerupSpawn(group.position);
@@ -75,11 +75,11 @@ export class Powerups {
     for (let i = this.drops.length - 1; i >= 0; i--) {
       const d = this.drops[i];
       d.t += dt;
-      d.group.position.y = 1.0 + Math.sin(d.t * 2.5) * 0.12;
+      d.group.position.y = d.pos.y + 1.0 + Math.sin(d.t * 2.5) * 0.12;
       d.group.children[1].rotation.y += dt * 1.8;
       // 快消失时闪烁
       d.group.visible = d.t < 20 || Math.floor(d.t * (d.t > 24 ? 10 : 5)) % 2 === 0;
-      if (Math.hypot(d.pos.x - p.x, d.pos.z - p.z) < 1.1 && !g.player.dead) {
+      if (Math.hypot(d.pos.x - p.x, d.pos.z - p.z) < 1.1 && Math.abs(d.pos.y - p.y) < 1.2 && !g.player.dead) {
         this.apply(d.kind);
         this.remove(i);
         continue;

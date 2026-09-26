@@ -26,23 +26,37 @@ export const T = {
   WINDOW: 4,
   CRATE: 5,
   OBJECT: 6,
+  /** 楼梯：上下两层网格里同一格都标成 STAIR，地面高度按斜坡算 */
+  STAIR: 7,
+  /** 二楼的挑空（中庭上方的空气）：不能走，子弹能穿过 */
+  OPEN: 8,
+  /** 玻璃墙：和墙一样挡人挡子弹，只是画成玻璃 */
+  GLASS: 9,
 } as const;
 
 export type PerkId = 'jugg' | 'speed' | 'doubletap';
+export type MapId = 'manor' | 'lab';
+/** 0 一楼，1 二楼 */
+export type Layer = 0 | 1;
 
 export interface DoorDef {
   cost: number;
   cells: [number, number][];
+  layer?: Layer;
+  /** 门上方的房间牌：[坐标较小一侧的房间名, 较大一侧的房间名]（从一侧看到的是另一侧的名字） */
+  names?: [string, string];
 }
 export interface PerkDef {
   perk: PerkId;
   x: number;
   z: number;
   face: [number, number];
+  layer?: Layer;
 }
 export interface BoxDef {
   cells: [number, number][];
   face: [number, number];
+  layer?: Layer;
 }
 export interface LampDef {
   x: number;
@@ -53,22 +67,61 @@ export interface CrateDef {
   x: number;
   z: number;
   h: number;
+  layer?: Layer;
+}
+/** 窗户：x, z, 楼层（默认一楼） */
+export type WindowDef = [number, number] | [number, number, Layer];
+/** 楼梯：矩形区域沿 dir 方向从一楼地面升到二楼地面 */
+export interface StairDef {
+  x0: number;
+  z0: number;
+  x1: number;
+  z1: number;
+  dir: [number, number];
+}
+/** 研究中心的家具 / 设备：占的格子按 h 高度挡人挡子弹，外观由场景按 kind 画 */
+export interface PropDef {
+  kind: string;
+  x: number;
+  z: number;
+  /** 占几格（x 方向 × z 方向），默认 1×1 */
+  w?: number;
+  d?: number;
+  h: number;
+  layer?: Layer;
+  /** 朝向（正面法线），默认 [0, 1] */
+  face?: [number, number];
 }
 
 export interface MapDef {
+  id: MapId;
+  name: string;
+  /** night 夜晚庄园（点光源 + 雾），day 白天研究中心（太阳 + 阴影） */
+  theme: 'night' | 'day';
   w: number;
   h: number;
   grid: Uint8Array;
+  /** 二楼网格（单层地图没有） */
+  grid2?: Uint8Array;
+  /** 层高：二楼地面的高度；单层地图等于墙高 */
+  storey: number;
   doors: DoorDef[];
-  windows: [number, number][];
+  windows: WindowDef[];
   perks: PerkDef[];
   box: BoxDef;
   lamps: LampDef[];
   crates: CrateDef[];
+  stairs?: StairDef[];
+  props?: PropDef[];
   start: { x: number; z: number; yaw: number };
 }
 
-export function buildMap(): MapDef {
+export const MAP_LIST: { id: MapId; name: string; desc: string }[] = [
+  { id: 'manor', name: '死亡之夜 · 废弃庄园', desc: '月夜下的单层庄园，七个房间绕成一圈。' },
+  { id: 'lab', name: '白昼危机 · 城市研究中心', desc: '白天的两层研究大楼：中庭大楼梯、二楼回廊，丧尸还会顺着脚手架爬上二楼窗户。' },
+];
+
+export function buildManor(): MapDef {
   const W = 42;
   const H = 30;
   const grid = new Uint8Array(W * H);
@@ -166,9 +219,13 @@ export function buildMap(): MapDef {
   ];
 
   return {
+    id: 'manor',
+    name: '废弃庄园',
+    theme: 'night',
     w: W,
     h: H,
     grid,
+    storey: 3,
     doors,
     windows,
     perks,

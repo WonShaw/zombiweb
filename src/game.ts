@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import { Input } from './core/input';
 import { Sfx } from './core/audio';
 import { Level } from './world/level';
-import { buildMap } from './world/map';
+import { buildManor, type MapId } from './world/map';
+import { buildLab } from './world/labMap';
 import { Player } from './entities/player';
 import { ZombieManager } from './entities/zombies';
 import { WeaponSystem } from './weapons/weaponSystem';
@@ -28,6 +29,8 @@ const ROUND_BREAK = 9;
 export class Game {
   renderer: THREE.WebGLRenderer;
   scene = new THREE.Scene();
+  /** 天光（白天地图会调亮） */
+  hemi = new THREE.HemisphereLight(0x6a7aa0, 0x3a3028, 0.75);
   camera: THREE.PerspectiveCamera;
   vmScene = new THREE.Scene();
   vmCamera: THREE.PerspectiveCamera;
@@ -63,7 +66,7 @@ export class Game {
   private overT = -1;
   private fwd = new THREE.Vector3();
 
-  constructor(canvas: HTMLCanvasElement) {
+  constructor(canvas: HTMLCanvasElement, readonly mapId: MapId = 'manor') {
     // stencil：路障透视轮廓要用模板缓冲
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, stencil: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
@@ -74,7 +77,7 @@ export class Game {
 
     this.scene.background = new THREE.Color(0x070a11);
     this.scene.fog = new THREE.FogExp2(0x0a0e16, 0.038);
-    this.scene.add(new THREE.HemisphereLight(0x6a7aa0, 0x3a3028, 0.75));
+    this.scene.add(this.hemi);
 
     this.camera = new THREE.PerspectiveCamera(BASE_FOV, 1, 0.05, 300);
     this.camera.rotation.order = 'YXZ';
@@ -86,7 +89,7 @@ export class Game {
     this.hud = new Hud(this);
     this.feedback = new Feedback(this);
     this.silhouettes = new Silhouettes(this);
-    this.level = new Level(this, buildMap());
+    this.level = new Level(this, mapId === 'lab' ? buildLab() : buildManor());
     this.particles = new Particles(this.scene);
     this.decals = new Decals(this.scene);
     this.lightning = new Lightning(this.scene);
@@ -335,7 +338,7 @@ export class Game {
     this.camera.updateMatrixWorld();
     this.weapons.update(dt);
     this.interactables.update(dt);
-    this.level.updateFlow(pl.pos.x, pl.pos.z);
+    this.level.updateFlow(pl.pos.x, pl.groundY, pl.pos.z);
     this.zombies.update(dt);
     this.projectiles.update(dt);
     this.turrets.update(dt);

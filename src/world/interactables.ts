@@ -37,7 +37,7 @@ export class Interactables {
     const lvl = game.level;
     for (const d of lvl.doors) this.list.push(this.door(d));
     for (const w of lvl.windows) this.list.push(this.windowRepair(w));
-    for (const p of lvl.def.perks) this.list.push(this.perk(p.perk, p.x, p.z, p.face));
+    for (const p of lvl.def.perks) this.list.push(this.perk(p.perk, p.x, p.z, p.face, (p.layer ?? 0) * lvl.storey));
     this.box = new MysteryBox(game);
     this.list.push(this.box);
   }
@@ -45,7 +45,7 @@ export class Interactables {
   private door(d: DoorRT): Interactable {
     const g = this.game;
     return {
-      pos: new THREE.Vector3(d.center.x, 1.2, d.center.z),
+      pos: new THREE.Vector3(d.center.x, d.baseY + 1.2, d.center.z),
       range: 2.4,
       prompt: () => (d.open ? null : `按 F 打开门 [花费: ${d.def.cost}]`),
       use: () => {
@@ -57,7 +57,7 @@ export class Interactables {
   private windowRepair(w: WindowRT): Interactable {
     const g = this.game;
     return {
-      pos: new THREE.Vector3(w.inside.x, 1, w.inside.z),
+      pos: new THREE.Vector3(w.inside.x, w.floorY + 1, w.inside.z),
       range: 1.45,
       hold: true,
       prompt: () => (g.level.needsRepair(w) && !w.occupant ? '按住 F 修复路障' : null),
@@ -71,12 +71,12 @@ export class Interactables {
     };
   }
 
-  private perk(id: PerkId, x: number, z: number, face: [number, number]): Interactable {
+  private perk(id: PerkId, x: number, z: number, face: [number, number], y0: number): Interactable {
     const g = this.game;
     const info = PERKS[id];
     const color = new THREE.Color(info.color);
     const group = new THREE.Group();
-    group.position.set(x + 0.5, 0, z + 0.5);
+    group.position.set(x + 0.5, y0, z + 0.5);
     group.rotation.y = Math.atan2(face[0], face[1]);
     const bodyMat = new THREE.MeshStandardMaterial({ color: color.clone().multiplyScalar(0.55), roughness: 0.35, metalness: 0.4 });
     const trimMat = new THREE.MeshStandardMaterial({ color: 0x1a1816, roughness: 0.5, metalness: 0.6 });
@@ -103,10 +103,15 @@ export class Interactables {
       b.scale.z = 0.2;
     }
     add(new THREE.BoxGeometry(0.3, 0.12, 0.08), trimMat, 0, 0.55, 0.3);
+    if (g.level.lab) {
+      group.traverse((o) => {
+        if (o instanceof THREE.Mesh) o.castShadow = o.receiveShadow = true;
+      });
+    }
     g.scene.add(group);
     // 用发光精灵和地面光斑假装机器照亮了周围
     const glowTex = TX.glowTexture();
-    const front = new THREE.Vector3(x + 0.5 + face[0] * 0.75, 1.2, z + 0.5 + face[1] * 0.75);
+    const front = new THREE.Vector3(x + 0.5 + face[0] * 0.75, y0 + 1.2, z + 0.5 + face[1] * 0.75);
     const sprite = new THREE.Sprite(
       new THREE.SpriteMaterial({ map: glowTex, color, transparent: true, opacity: 0.22, blending: THREE.AdditiveBlending, depthWrite: false }),
     );
@@ -118,12 +123,12 @@ export class Interactables {
       new THREE.MeshBasicMaterial({ map: glowTex, color, transparent: true, opacity: 0.3, blending: THREE.AdditiveBlending, depthWrite: false }),
     );
     floor.rotation.x = -Math.PI / 2;
-    floor.position.set(front.x, 0.01, front.z);
+    floor.position.set(front.x, y0 + 0.01, front.z);
     g.scene.add(floor);
     this.perkGlows.push({ sprite, floor, t: Math.random() * 5 });
 
     return {
-      pos: new THREE.Vector3(x + 0.5 + face[0] * 0.9, 1.2, z + 0.5 + face[1] * 0.9),
+      pos: new THREE.Vector3(x + 0.5 + face[0] * 0.9, y0 + 1.2, z + 0.5 + face[1] * 0.9),
       range: 1.7,
       prompt: () => (g.player.perks.has(id) || g.weapons.drinking ? null : `按 F 购买 ${info.name} [花费: ${info.cost}] — ${info.desc}`),
       use: () => {
@@ -175,6 +180,8 @@ export class Interactables {
     let bestPrompt: string | null = null;
     if (!g.player.dead) {
       for (const it of this.candidates()) {
+        // 楼上楼下的东西够不着
+        if (Math.abs(it.pos.y - (p.y + 1.1)) > 1.5) continue;
         const dx = it.pos.x - p.x, dz = it.pos.z - p.z;
         const d = Math.hypot(dx, dz);
         if (d > it.range) continue;
@@ -262,9 +269,10 @@ class MysteryBox implements Interactable {
     const def = game.level.def.box;
     const [a, b] = def.cells;
     const cx = (a[0] + b[0]) / 2 + 0.5, cz = (a[1] + b[1]) / 2 + 0.5;
+    const y0 = (def.layer ?? 0) * game.level.storey;
     const face = def.face;
     const group = new THREE.Group();
-    group.position.set(cx, 0, cz);
+    group.position.set(cx, y0, cz);
     group.rotation.y = Math.atan2(face[0], face[1]);
     const { map, emissive } = TX.boxTextures();
     const sideMat = new THREE.MeshStandardMaterial({ map, emissiveMap: emissive, emissive: 0x66ccff, emissiveIntensity: 1.2, roughness: 0.8 });
@@ -279,16 +287,20 @@ class MysteryBox implements Interactable {
     group.add(this.lid);
     this.holder.position.set(0, 0.5, 0.05);
     group.add(this.holder);
+    if (game.level.lab) {
+      body.castShadow = body.receiveShadow = true;
+      lidMesh.castShadow = lidMesh.receiveShadow = true;
+    }
     game.scene.add(group);
 
     this.glow = new THREE.Sprite(
       new THREE.SpriteMaterial({ map: TX.glowTexture(), color: 0x7fd8ff, transparent: true, opacity: 0.35, blending: THREE.AdditiveBlending, depthWrite: false }),
     );
-    this.glow.position.set(cx, 1.1, cz);
+    this.glow.position.set(cx, y0 + 1.1, cz);
     this.glow.scale.set(2.4, 1.8, 1);
     game.scene.add(this.glow);
 
-    this.pos = new THREE.Vector3(cx + face[0] * 0.9, 1, cz + face[1] * 0.9);
+    this.pos = new THREE.Vector3(cx + face[0] * 0.9, y0 + 1, cz + face[1] * 0.9);
 
     // 抽箱时枪模轮流闪过，第一次建模要几十毫秒；开局后在后台慢慢预先建好，抽箱时就不卡
     const ids = BOX_POOL.map((w) => w.id);

@@ -13,7 +13,7 @@ export interface HitOpts {
   kind?: KillKind;
 }
 
-type ZState = 'rising' | 'approach' | 'tearing' | 'climbing' | 'chasing' | 'attacking' | 'dying';
+type ZState = 'rising' | 'approach' | 'scaling' | 'tearing' | 'climbing' | 'chasing' | 'attacking' | 'dying';
 export type DamageSource = 'bullet' | 'melee' | 'explosive' | 'nuke' | 'trap' | 'turret';
 
 const ATTACK_DUR = 1.0;
@@ -81,6 +81,8 @@ export class Zombie {
   private pitch = rand(0.85, 1.2);
   private moved = 0;
   private stunT = 0;
+  /** 死亡时脚下的参考高度（决定尸体落到哪层） */
+  private deathRef = 0;
 
   constructor(
     private game: Game,
@@ -98,10 +100,16 @@ export class Zombie {
     else if (tier === 'elite') this.pitch *= 0.88;
     this.model = new ZombieModel(this, tier);
     this.model.setSilhouette(tier);
+    // 白天地图：身上接收阴影（进了屋就暗下来）
+    if (game.level.lab) {
+      this.model.root.traverse((o) => {
+        if (o instanceof THREE.Mesh) o.receiveShadow = true;
+      });
+    }
     this.model.root.rotation.order = 'YXZ';
     this.pos.copy(spawn);
     this.pos.y = -1.7;
-    this.yaw = Math.atan2(win.outside.x - spawn.x, win.outside.z - spawn.z);
+    this.yaw = Math.atan2(win.climbBase.x - spawn.x, win.climbBase.z - spawn.z);
     game.scene.add(this.model.root);
     game.audio.rise(spawn);
     this.sync();
@@ -112,7 +120,7 @@ export class Zombie {
   }
   /** 还在窗外（没翻进来）：被路障挡住时显示透视轮廓 */
   get outsideWindow() {
-    return this.state === 'rising' || this.state === 'approach' || this.state === 'tearing';
+    return this.state === 'rising' || this.state === 'approach' || this.state === 'scaling' || this.state === 'tearing';
   }
   get inside() {
     return this.state === 'chasing' || this.state === 'attacking' && this.returnState === 'chasing';
@@ -149,27 +157,30 @@ export class Zombie {
     this.yaw += clamp(angleDiff(this.yaw, want) * damp(rate, dt), -maxTurn, maxTurn);
   }
 
-  /** 选择下一个移动目标：看得见玩家就直冲，否则沿流场“拉线”走 */
+  /** 选择下一个移动目标：看得见玩家就直冲，否则沿流场“拉线”走（上下楼只能走楼梯） */
   private computeTarget() {
     const lvl = this.game.level;
-    const p = this.game.player.pos;
-    if (lvl.segmentClear(this.pos.x, this.pos.z, p.x, p.z, 0.26)) {
-      this.target.set(p.x, 0, p.z);
+    const pl = this.game.player;
+    const p = pl.pos;
+    const y = this.pos.y;
+    if (Math.abs(pl.groundY - y) < 1.2 && lvl.segmentClear(this.pos.x, this.pos.z, p.x, p.z, 0.26, y, pl.groundY)) {
+      this.target.set(p.x, pl.groundY, p.z);
       return;
     }
-    let cur = lvl.idx(Math.floor(this.pos.x), Math.floor(this.pos.z));
+    let cur = lvl.nodeAt(this.pos.x, y, this.pos.z);
     let found = false;
-    for (let k = 0; k < 6; k++) {
+    for (let k = 0; k < 6 && cur >= 0; k++) {
       const nb = lvl.bestNeighbor(cur);
       if (nb < 0) break;
-      const nx = (nb % lvl.w) + 0.5, nz = Math.floor(nb / lvl.w) + 0.5;
-      if (k === 0 || lvl.segmentClear(this.pos.x, this.pos.z, nx, nz, 0.26)) {
-        this.target.set(nx, 0, nz);
+      const c = lvl.nodeCell(nb);
+      const nx = (c % lvl.w) + 0.5, nz = Math.floor(c / lvl.w) + 0.5, ny = lvl.nodeH(nb);
+      if (k === 0 || lvl.segmentClear(this.pos.x, this.pos.z, nx, nz, 0.26, y, ny)) {
+        this.target.set(nx, ny, nz);
         found = true;
         cur = nb;
       } else break;
     }
-    if (!found) this.target.set(p.x, 0, p.z);
+    if (!found) this.target.set(p.x, pl.groundY, p.z);
   }
 
   update(dt: number) {
@@ -191,7 +202,9 @@ export class Zombie {
     const p = g.player.pos;
     const pdx = p.x - this.pos.x, pdz = p.z - this.pos.z;
     const pDist = Math.hypot(pdx, pdz);
-    let mode: 'move' | 'idle' | 'attack' | 'tear' | 'climb' | 'rise' = 'idle';
+    // 和玩家的高度差（楼上楼下够不着）
+    const pdy = Math.abs(g.player.groundY - this.pos.y);
+    let mode: 'move' | 'idle' | 'attack' | 'tear' | 'climb' | 'rise' | 'ladder' = 'idle';
     let animT = this.st;
     const before = this.pos.clone();
 
@@ -207,13 +220,45 @@ export class Zombie {
         break;
       }
       case 'approach': {
-        const o = this.win.outside;
+        // 一楼窗户直接走到窗外；二楼窗户先走到脚手架的梯子底下
+        const o = this.win.climbBase;
         const d = Math.hypot(o.x - this.pos.x, o.z - this.pos.z);
         if (d < 0.35) {
-          this.setState('tearing');
-          this.tearT = this.tearInterval * 0.6;
+          if (this.win.layer > 0) {
+            this.climbFrom.copy(this.pos);
+            this.setState('scaling');
+          } else {
+            this.setState('tearing');
+            this.tearT = this.tearInterval * 0.6;
+          }
         } else this.moveToward(o.x, o.z, this.speed, dt);
         mode = 'move';
+        break;
+      }
+      case 'scaling': {
+        // 顺着梯子爬上脚手架，再走到窗前的跳板上
+        const w = this.win;
+        const dur = this.type === 'walk' ? 2.6 : this.type === 'run' ? 1.9 : 1.4;
+        const t = Math.min(1, this.st / dur);
+        mode = 'ladder';
+        animT = ((t / 0.8) * 4) % 1;
+        if (t < 0.8) {
+          const u = t / 0.8;
+          this.pos.x = w.climbBase.x;
+          this.pos.z = w.climbBase.z;
+          this.pos.y = w.floorY * u;
+        } else {
+          const u = (t - 0.8) / 0.2;
+          this.pos.lerpVectors(w.climbBase, w.outside, u);
+          this.pos.y = w.floorY;
+          mode = 'move';
+        }
+        this.faceToward(w.center.x - w.climbBase.x, w.center.z - w.climbBase.z, dt, 10);
+        if (t >= 1) {
+          this.pos.y = w.floorY;
+          this.setState('tearing');
+          this.tearT = this.tearInterval * 0.6;
+        }
         break;
       }
       case 'tearing': {
@@ -222,11 +267,11 @@ export class Zombie {
         this.faceToward(w.center.x - this.pos.x, w.center.z - this.pos.z, dt, 8);
         const o = w.outside;
         const off = Math.hypot(o.x - this.pos.x, o.z - this.pos.z);
-        if (off > 0.9) {
+        if (off > 0.9 && w.layer === 0) {
           this.setState('approach');
           break;
         }
-        if (off > 0.15) this.moveToward(o.x, o.z, 1, dt, false);
+        if (off > 0.15) this.moveToward(o.x, o.z, off > 0.9 ? this.speed : 1, dt, false);
         const nb = g.level.boardCount(w);
         if (nb > 0) {
           this.tearT -= dt;
@@ -234,7 +279,7 @@ export class Zombie {
             this.tearT = this.tearInterval;
             if (g.level.pullBoard(w, this)) break;
           }
-        } else if (pDist < 2.0 && !g.player.dead) {
+        } else if (pDist < 2.0 && pdy < 1.0 && !g.player.dead) {
           this.returnState = 'tearing';
           this.attackHit = false;
           this.setState('attacking');
@@ -253,15 +298,15 @@ export class Zombie {
         if (t < 0.5) {
           const u = t / 0.5;
           this.pos.lerpVectors(this.climbFrom, w.center, u);
-          this.pos.y = SILL * Math.sin((u * Math.PI) / 2);
+          this.pos.y = w.floorY + SILL * Math.sin((u * Math.PI) / 2);
         } else {
           const u = (t - 0.5) / 0.5;
           this.pos.lerpVectors(w.center, w.inside, u);
-          this.pos.y = SILL * (1 - u * u);
+          this.pos.y = w.floorY + SILL * (1 - u * u);
         }
         this.faceToward(w.inside.x - w.center.x, w.inside.z - w.center.z, dt, 10);
         if (t >= 1) {
-          this.pos.y = 0;
+          this.pos.y = w.floorY;
           w.occupant = null;
           this.setState('chasing');
         }
@@ -275,17 +320,18 @@ export class Zombie {
         }
         this.moveToward(this.target.x, this.target.z, this.speed, dt);
         mode = 'move';
-        if (pDist < 1.15 && !g.player.dead) {
+        if (pDist < 1.15 && pdy < 1.0 && !g.player.dead) {
           this.returnState = 'chasing';
           this.attackHit = false;
           this.setState('attacking');
         }
-        // 长时间追不近就换个窗户重新出生，避免卡死
-        if (pDist < this.bestDist - 0.5) {
-          this.bestDist = pDist;
+        // 长时间追不近就换个窗户重新出生，避免卡死（高度差按两倍算，上楼也算在靠近）
+        const d3 = Math.hypot(pDist, pdy * 2);
+        if (d3 < this.bestDist - 0.5) {
+          this.bestDist = d3;
           this.progressT = 0;
         } else this.progressT += dt;
-        if (this.progressT > 14 && pDist > 10) this.respawn();
+        if (this.progressT > 14 && d3 > 10) this.respawn();
         break;
       }
       case 'attacking': {
@@ -297,7 +343,7 @@ export class Zombie {
           this.attackHit = true;
           g.audio.zombieSwipe(this.headPos());
           const reach = this.returnState === 'tearing' ? 2.15 : 1.6;
-          if (pDist < reach && !g.player.dead) g.player.damage(TIERS[this.tier].damage, this.pos);
+          if (pDist < reach && pdy < 1.3 && !g.player.dead) g.player.damage(TIERS[this.tier].damage, this.pos);
         }
         if (this.st >= ATTACK_DUR) this.setState(this.returnState);
         break;
@@ -366,31 +412,37 @@ export class Zombie {
       const sp = 0.8 + force * 1.3;
       this.deathVel.set((dir.x / len) * sp, source === 'explosive' ? 2.5 + force * 0.4 : 0, (dir.z / len) * sp);
     }
-    if (this.state === 'climbing') this.pos.y = 0;
-    if (this.pos.y > -0.5) g.decals.bloodPool(this.pos.x + Math.sin(this.yaw) * this.deathDir * 0.8, this.pos.z + Math.cos(this.yaw) * this.deathDir * 0.8);
+    // 翻窗时死在窗台上、爬梯子时掉回地面
+    if (this.state === 'climbing') this.pos.y = this.win.floorY;
+    this.deathRef = this.state === 'scaling' ? 0 : Math.max(0, this.pos.y);
+    const bx = this.pos.x + Math.sin(this.yaw) * this.deathDir * 0.8, bz = this.pos.z + Math.cos(this.yaw) * this.deathDir * 0.8;
+    if (this.pos.y > -0.5) g.decals.bloodPool(bx, bz, g.level.groundAt(bx, bz, this.deathRef));
     this.setState('dying');
     this.model.root.rotation.z = rand(-0.3, 0.3);
   }
 
   private updateDying(dt: number) {
+    const lvl = this.game.level;
+    let gy = lvl.groundAt(this.pos.x, this.pos.z, this.deathRef);
     if (this.deathVel.lengthSq() > 1e-4) {
       this.pos.addScaledVector(this.deathVel, dt);
       const f = Math.exp(-4.5 * dt);
       this.deathVel.x *= f;
       this.deathVel.z *= f;
       this.deathVel.y -= 14 * dt;
-      if (this.pos.y <= 0 && this.deathVel.y < 0) {
-        this.pos.y = 0;
+      lvl.collideCircle(this.pos, 0.25, this.deathRef, this.deathRef);
+      gy = lvl.groundAt(this.pos.x, this.pos.z, this.deathRef);
+      if (this.pos.y <= gy && this.deathVel.y < 0) {
+        this.pos.y = gy;
         this.deathVel.y = 0;
       }
-      this.game.level.collideCircle(this.pos, 0.25);
     }
     const t = Math.min(1, this.st / 0.65);
     this.model.root.rotation.x = this.deathDir * (Math.PI / 2) * t * t;
     this.model.lArm.rotation.x *= 0.9;
     this.model.rArm.rotation.x *= 0.9;
     this.model.root.position.set(this.pos.x, this.pos.y + 0.12 * t, this.pos.z);
-    if (this.pos.y > 0) this.pos.y = Math.max(0, this.pos.y - dt * 3);
+    if (this.pos.y > gy) this.pos.y = Math.max(gy, this.pos.y - dt * (this.deathRef === 0 && gy === 0 ? 6 : 3));
     if (this.st > 3.5) this.pos.y -= dt * 0.3;
     if (this.st > 5.5) this.remove = true;
   }
@@ -449,12 +501,13 @@ export class ZombieManager {
   pickWindow(): WindowRT | null {
     const lvl = this.game.level;
     const p = this.game.player.pos;
+    const py = this.game.player.groundY;
     const pz = this.game.player.zone;
     const cands: [WindowRT, number][] = [];
     let total = 0;
     for (const w of lvl.windows) {
       if (!lvl.zoneActive[w.zone]) continue;
-      const d = Math.hypot(w.inside.x - p.x, w.inside.z - p.z);
+      const d = Math.hypot(w.inside.x - p.x, w.inside.z - p.z, (w.floorY - py) * 1.5);
       const wt = 1 / (1 + (d / 9) ** 2) + (w.zone === pz ? 0.5 : 0);
       cands.push([w, wt]);
       total += wt;
@@ -471,7 +524,9 @@ export class ZombieManager {
   spawnPoint(w: WindowRT) {
     const out = new THREE.Vector3(w.out[0], 0, w.out[1]);
     const lat = new THREE.Vector3(-w.out[1], 0, w.out[0]);
-    return w.outside.clone().addScaledVector(out, rand(3, 6.5)).addScaledVector(lat, rand(-2.2, 2.2));
+    const p = w.climbBase.clone().addScaledVector(out, rand(3, 6.5)).addScaledVector(lat, rand(-2.2, 2.2));
+    p.y = 0;
+    return p;
   }
 
   private spawnOne() {
@@ -528,7 +583,7 @@ export class ZombieManager {
       if (this.dropsThisRound < 4 && Math.random() < chance) {
         this.killsSinceDrop = 0;
         this.dropsThisRound++;
-        g.powerups.spawn(new THREE.Vector3(z.pos.x, 0, z.pos.z));
+        g.powerups.spawn(new THREE.Vector3(z.pos.x, Math.max(0, z.pos.y), z.pos.z));
       }
     }
     return true;
@@ -569,7 +624,7 @@ export class ZombieManager {
       if (!a.collides) continue;
       for (let j = i + 1; j < L.length; j++) {
         const b = L[j];
-        if (!b.collides) continue;
+        if (!b.collides || Math.abs(a.pos.y - b.pos.y) > 1.2) continue;
         const dx = b.pos.x - a.pos.x, dz = b.pos.z - a.pos.z;
         const min = a.radius + b.radius;
         const d2 = dx * dx + dz * dz;
@@ -585,12 +640,13 @@ export class ZombieManager {
     }
     // 与玩家的碰撞（丧尸会把玩家“卡”住）
     const p = g.player.pos;
+    const lvl = g.level;
     for (const z of L) {
       if (!z.collides) continue;
       const dx = z.pos.x - p.x, dz = z.pos.z - p.z;
       const min = z.radius + g.player.radius;
       const d2 = dx * dx + dz * dz;
-      if (d2 < min * min && d2 > 1e-8) {
+      if (d2 < min * min && d2 > 1e-8 && Math.abs(z.pos.y - p.y) < 1.5) {
         const d = Math.sqrt(d2);
         const push = min - d;
         z.pos.x += (dx / d) * push * 0.75;
@@ -598,12 +654,14 @@ export class ZombieManager {
         p.x -= (dx / d) * push * 0.25;
         p.z -= (dz / d) * push * 0.25;
       }
-      g.turrets.collide(z.pos, z.radius);
-      g.level.collideCircle(z.pos, z.radius);
+      g.turrets.collide(z.pos, z.radius, z.pos.y);
+      lvl.collideCircle(z.pos, z.radius, z.pos.y, z.pos.y);
+      // 屋里的丧尸贴着地面走（上下楼梯）
+      if (z.inside) z.pos.y = lvl.groundAt(z.pos.x, z.pos.z, z.pos.y);
       z.sync();
     }
-    g.turrets.collide(p, g.player.radius);
-    g.level.collideCircle(p, g.player.radius);
+    g.turrets.collide(p, g.player.radius, g.player.groundY);
+    lvl.collideCircle(p, g.player.radius, p.y, g.player.groundY);
 
     for (let i = L.length - 1; i >= 0; i--) {
       if (L[i].remove) {

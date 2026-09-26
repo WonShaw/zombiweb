@@ -295,13 +295,18 @@ export class Turrets {
     const yaw = g.player.yaw;
     const x = p.x - Math.sin(yaw) * TURRET.carryDist;
     const z = p.z - Math.cos(yaw) * TURRET.carryDist;
-    c.spot.set(x, 0, z);
+    const py = g.player.groundY;
+    const gy = g.level.groundAt(x, z, py);
+    c.spot.set(x, gy, z);
     c.yaw = yaw;
     const r = TURRET_KINDS[c.kind].radius;
+    // 只能放在平地上（不能放楼梯上），和玩家在同一层
     c.valid =
-      !g.level.circleBlocked(x, z, r + 0.05) &&
-      g.level.segmentClear(p.x, p.z, x, z, 0.05) &&
-      !this.list.some((t) => !t.carried && Math.hypot(t.pos.x - x, t.pos.z - z) < r + TURRET_KINDS[t.kind].radius + 0.15);
+      Math.abs(gy - py) < 0.05 &&
+      !g.level.touchesStair(x, z, r + 0.05) &&
+      !g.level.circleBlocked(x, z, r + 0.05, gy, gy) &&
+      g.level.segmentClear(p.x, p.z, x, z, 0.05, py, gy) &&
+      !this.list.some((t) => !t.carried && Math.abs(t.pos.y - gy) < 1 && Math.hypot(t.pos.x - x, t.pos.z - z) < r + TURRET_KINDS[t.kind].radius + 0.15);
     const ghost = this.ghosts[c.kind];
     ghost.position.copy(c.spot);
     ghost.rotation.y = yaw;
@@ -329,7 +334,7 @@ export class Turrets {
       t.yaw = c.yaw;
       t.pitch = 0;
       t.head.rotation.set(0, c.yaw, 0);
-      t.interact.pos.set(c.spot.x, 1, c.spot.z);
+      t.interact.pos.set(c.spot.x, c.spot.y + 1, c.spot.z);
       t.carried = false;
       t.group.visible = true;
     } else {
@@ -337,7 +342,7 @@ export class Turrets {
     }
     this.carry = null;
     this.showGhost(null);
-    g.audio.hammer(new THREE.Vector3(c.spot.x, 0.8, c.spot.z));
+    g.audio.hammer(new THREE.Vector3(c.spot.x, c.spot.y + 0.8, c.spot.z));
   }
 
   /** 右键取消：搬起的机枪回到原位；刚买的新机枪退还积分 */
@@ -385,6 +390,11 @@ export class Turrets {
     barFill.position.set(-0.3, 1.45, 0.001);
     group.add(barFill);
 
+    if (g.level.lab) {
+      group.traverse((o) => {
+        if (o instanceof THREE.Mesh) o.receiveShadow = true;
+      });
+    }
     g.scene.add(group);
 
     const t: Turret = {
@@ -404,7 +414,7 @@ export class Turrets {
       carried: false,
     };
     t.interact = {
-      pos: new THREE.Vector3(pos.x, 1, pos.z),
+      pos: new THREE.Vector3(pos.x, pos.y + 1, pos.z),
       range: 1.6,
       prompt: () => {
         if (t.reloadT >= 0) return `${K.name}上弹中…`;
@@ -429,9 +439,9 @@ export class Turrets {
   }
 
   /** 把圆推出所有机枪（玩家和丧尸都要绕开机枪） */
-  collide(p: { x: number; z: number }, r: number) {
+  collide(p: { x: number; z: number }, r: number, y = 0) {
     for (const t of this.list) {
-      if (t.carried) continue;
+      if (t.carried || Math.abs(t.pos.y - y) > 1.2) continue;
       const dx = p.x - t.pos.x, dz = p.z - t.pos.z;
       const min = r + TURRET_KINDS[t.kind].radius;
       const d2 = dx * dx + dz * dz;
@@ -449,7 +459,7 @@ export class Turrets {
   /** 找射程内、视线不被墙挡住的最近丧尸 */
   private findTarget(t: Turret): Zombie | null {
     const g = this.game;
-    const from = new THREE.Vector3(t.pos.x, MUZZLE_Y, t.pos.z);
+    const from = new THREE.Vector3(t.pos.x, t.pos.y + MUZZLE_Y, t.pos.z);
     let best: Zombie | null = null;
     let bestD = TURRET_KINDS[t.kind].range;
     for (const z of g.zombies.list) {
@@ -553,7 +563,7 @@ export class Turrets {
       if (t.target) {
         const z = t.target;
         const dx = z.pos.x - t.pos.x, dz = z.pos.z - t.pos.z;
-        const dy = z.pos.y + 1.25 - MUZZLE_Y;
+        const dy = z.pos.y + 1.25 - t.pos.y - MUZZLE_Y;
         const wantYaw = Math.atan2(-dx, -dz);
         const wantPitch = Math.atan2(dy, Math.hypot(dx, dz));
         const dYaw = angleDiff(t.yaw, wantYaw);
@@ -620,7 +630,9 @@ export class Turrets {
       const reloading = t.reloadT >= 0;
       if (!reloading) needF = true;
       const name = TURRET_KINDS[t.kind].name;
-      const text = reloading ? `${name} #${i + 1} 上弹中` : `${name} #${i + 1} 没子弹 · ${Math.round(Math.hypot(dx, dz))} 米`;
+      const dy = t.pos.y - g.player.groundY;
+      const floor = dy > 1.5 ? ' · 楼上' : dy < -1.5 ? ' · 楼下' : '';
+      const text = reloading ? `${name} #${i + 1} 上弹中` : `${name} #${i + 1} 没子弹 · ${Math.round(Math.hypot(dx, dz))} 米${floor}`;
       if (text !== row.text) {
         row.text = text;
         row.txt.textContent = text;

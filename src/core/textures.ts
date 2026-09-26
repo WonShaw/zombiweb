@@ -8,7 +8,7 @@ import { seeded } from './util';
 
 type Rand = () => number;
 
-function mk(w: number, h: number) {
+export function mk(w: number, h: number) {
   const c = document.createElement('canvas');
   c.width = w;
   c.height = h;
@@ -17,7 +17,7 @@ function mk(w: number, h: number) {
 }
 
 /** 可平铺的多倍频值噪声，返回 0..1 */
-function noiseField(w: number, h: number, cellsX: number, cellsY: number, octaves: number, r: Rand): Float32Array {
+export function noiseField(w: number, h: number, cellsX: number, cellsY: number, octaves: number, r: Rand): Float32Array {
   const out = new Float32Array(w * h);
   let amp = 1;
   let total = 0;
@@ -51,7 +51,7 @@ function noiseField(w: number, h: number, cellsX: number, cellsY: number, octave
   return out;
 }
 
-function tex(c: HTMLCanvasElement, repeat = true) {
+export function tex(c: HTMLCanvasElement, repeat = true) {
   const t = new THREE.CanvasTexture(c);
   if (repeat) t.wrapS = t.wrapT = THREE.RepeatWrapping;
   t.colorSpace = THREE.SRGBColorSpace;
@@ -59,7 +59,7 @@ function tex(c: HTMLCanvasElement, repeat = true) {
   return t;
 }
 
-const c255 = (v: number) => (v < 0 ? 0 : v > 255 ? 255 : v);
+export const c255 = (v: number) => (v < 0 ? 0 : v > 255 ? 255 : v);
 
 /** 墙面：上半米黄灰泥、下半军绿墙裙、踢脚线、水渍和裂缝。纹理覆盖 4m 宽 × 3m 高 */
 export function wallTexture() {

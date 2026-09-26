@@ -1,7 +1,23 @@
 import './style.css';
 import { Game } from './game';
+import { MAP_LIST, type MapId } from './world/map';
 
 const SETTINGS_KEY = 'zombie.settings';
+const MAP_KEY = 'zombie.map';
+
+/** 选的地图：网址里的 ?map= 优先，其次是上次选的 */
+function loadMap(): MapId {
+  const ok = (m: string | null): m is MapId => MAP_LIST.some((x) => x.id === m);
+  const q = new URLSearchParams(location.search).get('map');
+  if (ok(q)) return q;
+  try {
+    const m = localStorage.getItem(MAP_KEY);
+    if (ok(m)) return m;
+  } catch {
+    /* 忽略 */
+  }
+  return 'manor';
+}
 
 function loadSettings() {
   try {
@@ -20,7 +36,8 @@ function saveSettings(s: { sens: number; vol: number }) {
 }
 
 const canvas = document.getElementById('game') as HTMLCanvasElement;
-const game = new Game(canvas);
+const mapId = loadMap();
+const game = new Game(canvas, mapId);
 (window as unknown as { game: Game }).game = game;
 
 const settings = loadSettings();
@@ -48,6 +65,26 @@ document.querySelectorAll<HTMLInputElement>('input[data-setting]').forEach((el) 
     saveSettings(settings);
   });
 });
+
+// 主菜单的地图选择：换地图时记下来并重新载入页面
+const pick = document.getElementById('map-pick')!;
+for (const m of MAP_LIST) {
+  const btn = document.createElement('button');
+  btn.className = m.id === mapId ? 'on' : '';
+  btn.innerHTML = `${m.name}<small>${m.desc}</small>`;
+  btn.addEventListener('click', () => {
+    if (m.id === mapId) return;
+    try {
+      localStorage.setItem(MAP_KEY, m.id);
+    } catch {
+      /* 忽略 */
+    }
+    const url = new URL(location.href);
+    url.searchParams.set('map', m.id);
+    location.href = url.toString();
+  });
+  pick.appendChild(btn);
+}
 
 document.getElementById('btn-start')!.addEventListener('click', () => game.start());
 document.getElementById('btn-resume')!.addEventListener('click', () => game.requestResume());

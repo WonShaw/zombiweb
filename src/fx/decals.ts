@@ -57,11 +57,11 @@ export class Decals {
     m.scale.set(s, s, 1);
   }
 
-  bloodPool(x: number, z: number) {
+  bloodPool(x: number, z: number, y = 0) {
     const m = this.splats[this.si];
     this.si = (this.si + 1) % this.splats.length;
     m.visible = true;
-    m.position.set(x, 0.006 + this.si * 0.0002, z);
+    m.position.set(x, y + 0.006 + this.si * 0.0002, z);
     m.rotation.y = Math.random() * Math.PI * 2;
     const s = 0.8 + Math.random() * 0.7;
     m.scale.set(s, 1, s);

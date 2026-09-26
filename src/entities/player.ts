@@ -13,6 +13,8 @@ export class Player {
   radius = 0.3;
   eye = 1.62;
   onGround = true;
+  /** 脚下地面的高度（一楼 0、二楼层高、楼梯上按斜坡） */
+  groundY = 0;
   sprinting = false;
   dead = false;
   deathT = 0;
@@ -90,20 +92,33 @@ export class Player {
       this.vel.y = 6.2;
       this.onGround = false;
     }
-    this.vel.y -= 20 * dt;
-    this.pos.y += this.vel.y * dt;
-    if (this.pos.y <= 0) {
-      if (!this.onGround && this.vel.y < -4) g.audio.jumpLand();
-      this.pos.y = 0;
-      this.vel.y = 0;
-      this.onGround = true;
-    }
     this.pos.x += this.vel.x * dt;
     this.pos.z += this.vel.z * dt;
-    g.turrets.collide(this.pos, this.radius);
-    g.level.collideCircle(this.pos, this.radius);
+    g.turrets.collide(this.pos, this.radius, this.groundY);
+    g.level.collideCircle(this.pos, this.radius, this.pos.y, this.groundY);
 
-    const z = g.level.zoneAt(this.pos.x, this.pos.z);
+    // 竖直方向：站着时贴地（上下楼梯），跳起来或走下台阶才受重力
+    const ground = g.level.groundAt(this.pos.x, this.pos.z, this.groundY);
+    if (this.onGround) {
+      if (this.pos.y - ground > 0.45) this.onGround = false;
+      else {
+        this.pos.y = ground;
+        this.vel.y = 0;
+      }
+    }
+    if (!this.onGround) {
+      this.vel.y -= 20 * dt;
+      this.pos.y += this.vel.y * dt;
+      if (this.pos.y <= ground) {
+        if (this.vel.y < -4) g.audio.jumpLand();
+        this.pos.y = ground;
+        this.vel.y = 0;
+        this.onGround = true;
+      }
+    }
+    this.groundY = ground;
+
+    const z = g.level.zoneAt(this.pos.x, this.groundY, this.pos.z);
     if (z >= 0) this.zone = z;
 
     // 走路晃动 + 脚步声

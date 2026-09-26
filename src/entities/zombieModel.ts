@@ -277,7 +277,7 @@ export class ZombieModel {
    * 程序化动画。phase 为步态相位，mode 描述当前动作。
    * 约定：模型正面朝 +z；绕 x 轴负旋转让手臂/腿向前抬。
    */
-  animate(phase: number, type: SpeedType, mode: 'move' | 'idle' | 'attack' | 'tear' | 'climb' | 'rise', t: number) {
+  animate(phase: number, type: SpeedType, mode: 'move' | 'idle' | 'attack' | 'tear' | 'climb' | 'rise' | 'ladder', t: number) {
     const q = this.quirk;
     const pose = this.pose;
     const s = Math.sin(phase);
@@ -294,6 +294,16 @@ export class ZombieModel {
       this.rShin.rotation.x = Math.max(0, -c) * amp * 1.2;
       // 上半身保持稳定：只留很小的上下起伏，不左右晃、不扭腰
       this.hips.position.y = 0.96 - Math.abs(c) * 0.012 * amp - limp * 0.03;
+      this.hips.rotation.z = 0;
+      this.hips.rotation.y = 0;
+    } else if (mode === 'ladder') {
+      // 爬梯子：两腿交替蹬、两手交替往上够（t 是 0..1 的循环相位）
+      const a = Math.sin(t * Math.PI * 2);
+      this.lLeg.rotation.x = -0.8 - a * 0.5;
+      this.rLeg.rotation.x = -0.8 + a * 0.5;
+      this.lShin.rotation.x = 1.1 + a * 0.35;
+      this.rShin.rotation.x = 1.1 - a * 0.35;
+      this.hips.position.y = 0.96;
       this.hips.rotation.z = 0;
       this.hips.rotation.y = 0;
     } else if (mode === 'climb') {
@@ -313,7 +323,7 @@ export class ZombieModel {
     }
 
     // 躯干与头
-    this.torso.rotation.x = lean + (mode === 'climb' ? 0.5 : 0);
+    this.torso.rotation.x = mode === 'ladder' ? 0.08 : lean + (mode === 'climb' ? 0.5 : 0);
     this.torso.rotation.y = 0;
     this.torso.rotation.z = 0;
     this.head.rotation.z = q.headTilt;
@@ -341,6 +351,12 @@ export class ZombieModel {
     } else if (mode === 'rise') {
       la = -2.7 + Math.sin(t * 9) * 0.3;
       ra = -2.5 - Math.sin(t * 9) * 0.3;
+    } else if (mode === 'ladder') {
+      const a = Math.sin(t * Math.PI * 2);
+      la = -2.7 + a * 0.45;
+      ra = -2.7 - a * 0.45;
+      lf = -0.35;
+      rf = -0.35;
     } else if (type === 'sprint' && mode === 'move') {
       la = -0.8 + s * 1.1;
       ra = -0.8 - s * 1.1;
@@ -358,7 +374,7 @@ export class ZombieModel {
     this.rFore.rotation.x = rf;
 
     // 叠加固定姿势。攻击、拆板、爬出地面时手臂动作要看得清，姿势对手臂只保留一小部分
-    const action = mode === 'attack' || mode === 'tear' || mode === 'rise';
+    const action = mode === 'attack' || mode === 'tear' || mode === 'rise' || mode === 'ladder';
     const armK = action ? 0.25 : type === 'sprint' && mode === 'move' ? 0.4 : 1;
     this.torso.rotation.x += pose.torsoX;
     this.torso.rotation.z += pose.torsoZ;
