@@ -132,7 +132,7 @@ export class WeaponSystem {
     this.bottle.group.visible = false;
     this.vmRoot.add(this.bottle.group);
 
-    this.muzzleLight = new THREE.PointLight(0xffb060, 0, 9, 1.5);
+    this.muzzleLight = new THREE.PointLight(0xffb060, 0, 6, 2);
     game.scene.add(this.muzzleLight);
 
     this.give('m1911');
@@ -553,7 +553,8 @@ export class WeaponSystem {
     this.flash.rotation.z = Math.random() * Math.PI;
     this.flash.scale.setScalar(rand(0.8, 1.3) * (def.cls === 'shotgun' || def.cls === 'lmg' || def.cls === 'launcher' ? 1.5 : 1));
     this.muzzleLight.color.set(def.chain ? 0x80c8ff : def.cls === 'wonder' ? 0x60ff70 : 0xffb060);
-    this.muzzleLight.intensity = def.cls === 'wonder' ? 5 : 10;
+    // 枪口火光只轻微照亮周围（太亮了连续射击时满屏闪，刺眼）
+    this.muzzleLight.intensity = def.cls === 'wonder' ? 2 : 3.5;
     this.muzzleLight.position.copy(origin).addScaledVector(fwd, 0.8);
   }
 
@@ -827,10 +828,10 @@ export class WeaponSystem {
 
     this.flashT -= dt;
     this.flash.visible = this.flashT > 0;
-    this.muzzleLight.intensity = Math.max(0, this.muzzleLight.intensity - dt * 200);
+    this.muzzleLight.intensity = Math.max(0, this.muzzleLight.intensity - dt * 50);
 
     // 按所处位置的亮度给枪模调光，避免暗处枪亮得突兀
-    const lvl = g.level.lightLevelAt(pl.pos) + (this.muzzleLight.intensity > 0 ? 0.6 : 0);
+    const lvl = g.level.lightLevelAt(pl.pos) + (this.muzzleLight.intensity / 3.5) * 0.12;
     const k = clamp(lvl, 0.3, 1.1);
     (this.vmLights[0] as THREE.AmbientLight).intensity = 0.3 * k;
     (this.vmLights[1] as THREE.DirectionalLight).intensity = 1.0 * k;
