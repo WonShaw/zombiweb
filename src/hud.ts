@@ -142,9 +142,14 @@ export class Hud {
     if (frac !== null) (this.el.promptBar.firstElementChild as HTMLElement).style.width = `${Math.round(frac * 100)}%`;
   }
 
-  hitmarker(kill: boolean) {
-    this.hitT = 0.18;
+  hitmarker(kill: boolean, head = false) {
+    this.hitT = kill ? 0.32 : 0.18;
     this.el.hit.classList.toggle('kill', kill);
+    this.el.hit.classList.toggle('head', head);
+    // 重新触发放大动画
+    this.el.hit.classList.remove('pop');
+    void this.el.hit.offsetWidth;
+    this.el.hit.classList.add('pop');
   }
 
   announce(big: string, small = '') {

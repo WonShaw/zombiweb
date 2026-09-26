@@ -13,6 +13,7 @@ import { Turrets, TURRET } from './world/turrets';
 import { Particles } from './fx/particles';
 import { Decals } from './fx/decals';
 import { Lightning } from './fx/lightning';
+import { Feedback } from './fx/feedback';
 import { Hud } from './hud';
 import { Shop } from './shop';
 import { WEAPONS, UPGRADES, type UpgradeId } from './weapons/defs';
@@ -37,6 +38,7 @@ export class Game {
   particles: Particles;
   decals: Decals;
   lightning: Lightning;
+  feedback: Feedback;
   turrets: Turrets;
   shop: Shop;
   player: Player;
@@ -79,6 +81,7 @@ export class Game {
 
     this.input = new Input(canvas);
     this.hud = new Hud(this);
+    this.feedback = new Feedback(this);
     this.level = new Level(this, buildMap());
     this.particles = new Particles(this.scene);
     this.decals = new Decals(this.scene);
@@ -322,6 +325,7 @@ export class Game {
     this.level.update(dt);
     this.particles.update(dt);
     this.lightning.update(dt);
+    this.feedback.update(dt);
     if (this.state === 'playing') this.updateRounds(dt);
     this.hud.update(dt);
     this.audio.setListener(this.camera.position, this.camera.getWorldDirection(this.fwd));

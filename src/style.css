@@ -942,3 +942,206 @@ kbd {
   border-color: rgba(255, 216, 74, 0.45);
   color: var(--gold);
 }
+
+/* ---------------- 打击反馈 ---------------- */
+
+#dmgnums {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+.dmg {
+  position: absolute;
+  left: 0;
+  top: 0;
+  font: italic 900 22px 'Arial Black', Impact, sans-serif;
+  color: #fff;
+  white-space: nowrap;
+  text-shadow: 0 2px 0 #000, 0 0 5px rgba(0, 0, 0, 0.9);
+  will-change: transform, opacity;
+}
+.dmg.d-limb {
+  font-size: 18px;
+  color: #dcdcdc;
+}
+.dmg.d-head {
+  font-size: 29px;
+  color: #ff6a1f;
+  text-shadow: 0 2px 0 #3a0a00, 0 0 12px rgba(255, 90, 20, 0.85);
+}
+.dmg.d-exp {
+  color: #ffb040;
+}
+.dmg.d-kill {
+  font-size: 30px;
+  color: #ffd84a;
+  text-shadow: 0 2px 0 #3a2200, 0 0 14px rgba(255, 200, 40, 0.8);
+}
+.dmg.d-head.d-kill {
+  font-size: 38px;
+  color: #ff3a1a;
+  text-shadow: 0 3px 0 #3a0000, 0 0 18px rgba(255, 40, 20, 0.95);
+}
+.dmg.d-turret {
+  font-size: 15px;
+  color: #a8d4ff;
+}
+.dmg.d-trap {
+  font-size: 17px;
+  color: #7fc8ff;
+}
+.dmg.d-turret.d-kill,
+.dmg.d-trap.d-kill {
+  font-size: 19px;
+  color: #cfe8ff;
+}
+
+#killbanner {
+  position: absolute;
+  left: 50%;
+  bottom: 118px;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  opacity: 0;
+  transition: opacity 0.5s;
+  --c: #ff4a1a;
+}
+#killbanner.show {
+  opacity: 1;
+  transition: opacity 0.05s;
+}
+#kb-icons {
+  display: flex;
+  gap: 6px;
+}
+.kb-icon {
+  width: 46px;
+  height: 46px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(70, 5, 0, 0.9), rgba(20, 0, 0, 0.7));
+  border: 2px solid rgba(255, 80, 60, 0.85);
+  box-shadow: 0 0 14px rgba(255, 40, 20, 0.6);
+  animation: kbIcon 0.35s cubic-bezier(0.2, 1.6, 0.4, 1);
+}
+.kb-icon svg {
+  width: 30px;
+  height: 30px;
+  fill: #fff;
+  overflow: visible;
+}
+.kb-icon.k-head {
+  border-color: #ffd84a;
+  background: radial-gradient(circle, rgba(90, 40, 0, 0.9), rgba(30, 10, 0, 0.7));
+  box-shadow: 0 0 18px rgba(255, 200, 40, 0.85);
+}
+.kb-icon.k-head svg {
+  fill: #ffd84a;
+}
+.kb-icon .ring {
+  fill: none;
+  stroke: #ff3a1a;
+  stroke-width: 1.6;
+}
+.kb-icon.k-knife {
+  border-color: #d8dde3;
+  box-shadow: 0 0 14px rgba(220, 230, 240, 0.6);
+}
+.kb-icon.k-explosive svg {
+  fill: #ffab40;
+}
+.kb-icon.k-lightning {
+  border-color: #7fc8ff;
+  background: radial-gradient(circle, rgba(0, 30, 70, 0.9), rgba(0, 10, 30, 0.7));
+  box-shadow: 0 0 16px rgba(80, 170, 255, 0.8);
+}
+.kb-icon.k-lightning svg {
+  fill: #cfeaff;
+}
+@keyframes kbIcon {
+  from {
+    transform: scale(2.3) rotate(-25deg);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1) rotate(0);
+    opacity: 1;
+  }
+}
+#kb-label {
+  margin-top: 6px;
+  font: italic 900 36px 'PingFang SC', 'Hiragino Sans GB', sans-serif;
+  letter-spacing: 0.12em;
+  color: var(--c);
+  text-shadow: 0 0 18px var(--c), 0 3px 0 #200;
+}
+#kb-label:empty {
+  display: none;
+}
+#kb-sub {
+  font: 900 13px 'Arial Black', Impact, sans-serif;
+  letter-spacing: 0.4em;
+  color: #ffd84a;
+  text-shadow: 0 1px 2px #000;
+}
+#killbanner.pop #kb-label,
+#killbanner.pop #kb-sub {
+  animation: kbLabel 0.45s cubic-bezier(0.2, 1.5, 0.4, 1);
+}
+@keyframes kbLabel {
+  from {
+    transform: scale(2.5);
+    opacity: 0;
+    filter: blur(4px);
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+    filter: blur(0);
+  }
+}
+#killbanner.head {
+  --c: #ffcc33;
+}
+#killbanner.tier-2 {
+  --c: #ff7a1a;
+}
+#killbanner.tier-3 {
+  --c: #ff4a1a;
+}
+#killbanner.tier-4 {
+  --c: #ff2a55;
+}
+#killbanner.tier-5,
+#killbanner.tier-6 {
+  --c: #d93aff;
+}
+#killbanner.tier-7,
+#killbanner.tier-8 {
+  --c: #ffd84a;
+}
+#killbanner.tier-7 #kb-label,
+#killbanner.tier-8 #kb-label {
+  font-size: 44px;
+}
+
+#hitmarker.pop {
+  animation: hmPop 0.18s ease-out;
+}
+@keyframes hmPop {
+  from {
+    transform: scale(1.7);
+  }
+  to {
+    transform: scale(1);
+  }
+}
+#hitmarker.head i {
+  background: #ffd84a;
+}
+#hitmarker.kill i {
+  height: 12px;
+}

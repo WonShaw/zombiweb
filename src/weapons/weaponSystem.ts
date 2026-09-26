@@ -29,6 +29,8 @@ const HIP: Record<string, THREE.Vector3> = {
 };
 const ADS_Z: Record<string, number> = { pistol: -0.25, wonder: -0.27, smg: -0.2, rifle: -0.19, shotgun: -0.2, sniper: -0.17, lmg: -0.2, launcher: -0.22 };
 const SWITCH_HALF = 0.22;
+/** 致死一击的击飞力度 */
+const FORCE: Record<string, number> = { pistol: 1, smg: 1, rifle: 1.5, shotgun: 3, lmg: 1.7, sniper: 3, launcher: 5, wonder: 2 };
 
 export class WeaponSystem {
   owned: Owned[] = [];
@@ -342,7 +344,6 @@ export class WeaponSystem {
       if (hitAny) {
         g.stats.hits++;
         g.hud.hitmarker(killAny);
-        g.audio.hitmarker();
       }
     }
     this.bloom = Math.min(def.hipSpread * 1.2, this.bloom + def.hipSpread * 0.22);
@@ -384,7 +385,7 @@ export class WeaponSystem {
         dmg *= 1 - t * (1 - m);
       }
       hit = true;
-      if (g.zombies.damage(z, dmg, part, 'bullet', dir)) kill = true;
+      if (g.zombies.damage(z, dmg, part, 'bullet', dir, { point: h.point, force: FORCE[def.cls] })) kill = true;
       g.particles.blood(h.point, dir.clone().negate(), def.pellets > 1 ? 4 : 9, 1);
       if (pen-- <= 0) {
         stopped = true;
@@ -439,7 +440,7 @@ export class WeaponSystem {
       const chest = new THREE.Vector3(cur.pos.x, cur.pos.y + 1.2, cur.pos.z);
       g.lightning.bolt(from, chest);
       g.particles.sparks(chest, 0x9fd8ff);
-      if (g.zombies.damage(cur, dmg, 'torso', 'bullet', dir)) kills++;
+      if (g.zombies.damage(cur, dmg, 'torso', 'bullet', dir, { point: chest, force: 2, kind: 'lightning' })) kills++;
       from = chest;
       dmg *= 0.92;
       // 找下一个最近的、没被电过的、中间没有墙的丧尸
@@ -481,7 +482,7 @@ export class WeaponSystem {
     if (!best) return;
     const hp = new THREE.Vector3(best.pos.x, best.pos.y + 1.3, best.pos.z);
     const dir = new THREE.Vector3(fx, 0, fz);
-    const killed = g.zombies.damage(best, 150, 'torso', 'melee', dir);
+    const killed = g.zombies.damage(best, 150, 'torso', 'melee', dir, { point: hp, force: 1.8 });
     g.particles.blood(hp, dir.clone().negate(), 14, 1.2);
     g.audio.fleshHit(hp, true);
     g.hud.hitmarker(killed);

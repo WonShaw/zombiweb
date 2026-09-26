@@ -4,6 +4,14 @@ import type { Game } from '../game';
 import type { WindowRT } from '../world/level';
 import { SILL } from '../world/level';
 import { rand, clamp, angleDiff, damp } from '../core/util';
+import type { KillKind } from '../fx/feedback';
+
+/** 伤害的附加信息：命中点（伤害数字位置）、击飞力度、击杀图标类型 */
+export interface HitOpts {
+  point?: THREE.Vector3;
+  force?: number;
+  kind?: KillKind;
+}
 
 type ZState = 'rising' | 'approach' | 'tearing' | 'climbing' | 'chasing' | 'attacking' | 'dying';
 export type DamageSource = 'bullet' | 'melee' | 'explosive' | 'nuke' | 'trap' | 'turret';
@@ -32,6 +40,7 @@ export class Zombie {
   private attackHit = false;
   private returnState: ZState = 'chasing';
   private deathDir = -1;
+  private deathVel = new THREE.Vector3();
   private progressT = 0;
   private bestDist = Infinity;
   private climbFrom = new THREE.Vector3();
@@ -259,6 +268,7 @@ export class Zombie {
       this.groanT = this.type === 'sprint' ? rand(1.5, 4) : rand(3, 7.5);
     }
 
+    this.model.decayFlinch(dt);
     this.model.animate(this.phase, this.type, mode, animT);
     this.sync();
   }
@@ -280,7 +290,18 @@ export class Zombie {
     return new THREE.Vector3(this.pos.x, this.pos.y + 1.65, this.pos.z);
   }
 
-  die(part: HitPart, source: DamageSource, dir?: THREE.Vector3) {
+  /** 受击：身子后仰 / 爆头甩头，屋里的丧尸还会被轻微击退 */
+  onHit(part: HitPart, dmg: number, dir: THREE.Vector3 | undefined, force: number) {
+    this.model.hitReact(part, clamp((dmg / this.maxHealth) * 2.5 + 0.35, 0.35, 1), Math.random() < 0.5 ? -1 : 1);
+    if (dir && this.inside) {
+      const k = Math.min(0.16, 0.035 * force);
+      const len = Math.hypot(dir.x, dir.z) || 1;
+      this.pos.x += (dir.x / len) * k;
+      this.pos.z += (dir.z / len) * k;
+    }
+  }
+
+  die(part: HitPart, source: DamageSource, dir?: THREE.Vector3, force = 1) {
     this.dead = true;
     if (this.win.occupant === this) this.win.occupant = null;
     const g = this.game;
@@ -294,6 +315,13 @@ export class Zombie {
       const fwd = new THREE.Vector3(Math.sin(this.yaw), 0, Math.cos(this.yaw));
       this.deathDir = fwd.dot(dir) > 0 ? 1 : -1;
     } else this.deathDir = Math.random() < 0.5 ? 1 : -1;
+    // 致死一击把尸体击飞：霰弹枪、狙击、爆炸飞得更远
+    this.deathVel.set(0, 0, 0);
+    if (dir && this.state !== 'climbing' && this.state !== 'rising') {
+      const len = Math.hypot(dir.x, dir.z) || 1;
+      const sp = 0.8 + force * 1.3;
+      this.deathVel.set((dir.x / len) * sp, source === 'explosive' ? 2.5 + force * 0.4 : 0, (dir.z / len) * sp);
+    }
     if (this.state === 'climbing') this.pos.y = 0;
     if (this.pos.y > -0.5) g.decals.bloodPool(this.pos.x + Math.sin(this.yaw) * this.deathDir * 0.8, this.pos.z + Math.cos(this.yaw) * this.deathDir * 0.8);
     this.setState('dying');
@@ -301,6 +329,18 @@ export class Zombie {
   }
 
   private updateDying(dt: number) {
+    if (this.deathVel.lengthSq() > 1e-4) {
+      this.pos.addScaledVector(this.deathVel, dt);
+      const f = Math.exp(-4.5 * dt);
+      this.deathVel.x *= f;
+      this.deathVel.z *= f;
+      this.deathVel.y -= 14 * dt;
+      if (this.pos.y <= 0 && this.deathVel.y < 0) {
+        this.pos.y = 0;
+        this.deathVel.y = 0;
+      }
+      this.game.level.collideCircle(this.pos, 0.25);
+    }
     const t = Math.min(1, this.st / 0.65);
     this.model.root.rotation.x = this.deathDir * (Math.PI / 2) * t * t;
     this.model.lArm.rotation.x *= 0.9;
@@ -419,14 +459,17 @@ export class ZombieManager {
     return this.hitMeshes;
   }
 
-  damage(z: Zombie, dmg: number, part: HitPart, source: DamageSource, dir?: THREE.Vector3): boolean {
+  damage(z: Zombie, dmg: number, part: HitPart, source: DamageSource, dir?: THREE.Vector3, opts: HitOpts = {}): boolean {
     if (z.dead) return false;
     const g = this.game;
     if (g.powerups.instakill > 0 && source !== 'nuke') dmg = z.health + 1;
     z.health -= dmg;
+    const force = opts.force ?? 1;
     if (z.health > 0) {
       // 自动机枪打中不给分，只有击杀给分，免得挂机刷分
       if (source !== 'turret') g.addPoints(10);
+      z.onHit(part, dmg, dir, force);
+      g.feedback.onDamage(z, dmg, part, source, false, opts.point, opts.kind);
       return false;
     }
     if (source !== 'nuke') {
@@ -435,7 +478,8 @@ export class ZombieManager {
     g.stats.kills++;
     if (part === 'head' && source === 'bullet') g.stats.headshots++;
     const wasInside = z.inside;
-    z.die(part, source, dir);
+    g.feedback.onDamage(z, dmg, part, source, true, opts.point, opts.kind);
+    z.die(part, source, dir, force);
     this.dirty = true;
     if (source !== 'nuke' && wasInside) {
       this.killsSinceDrop++;
@@ -453,7 +497,10 @@ export class ZombieManager {
     for (const z of this.list) {
       if (z.dead) continue;
       const d = Math.hypot(z.pos.x - center.x, z.pos.y + 1 - center.y, z.pos.z - center.z);
-      if (d < radius) this.damage(z, dmg * (1 - (d / radius) * 0.6), 'torso', 'explosive');
+      if (d < radius) {
+        const dir = new THREE.Vector3(z.pos.x - center.x, 0, z.pos.z - center.z);
+        this.damage(z, dmg * (1 - (d / radius) * 0.6), 'torso', 'explosive', dir, { force: 4 * (1 - d / radius) + 1 });
+      }
     }
   }
 

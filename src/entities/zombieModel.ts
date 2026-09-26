@@ -60,6 +60,10 @@ export class ZombieModel {
   lShin = new THREE.Group();
   rShin = new THREE.Group();
   meshes: THREE.Mesh[] = [];
+  /** 受击后仰 / 甩头的幅度，随时间衰减 */
+  private flinch = 0;
+  private headFlinch = 0;
+  private flinchSide = 1;
   /** 每只丧尸的姿态差异 */
   private quirk = { armL: rand(-0.25, 0.15), armR: rand(-0.25, 0.15), headTilt: rand(-0.3, 0.3), limp: rand(0, 0.5) };
 
@@ -205,6 +209,28 @@ export class ZombieModel {
     this.rArm.rotation.z = 0.08;
     this.lFore.rotation.x = lf;
     this.rFore.rotation.x = rf;
+
+    // 叠加受击动作
+    const f = this.flinch, hf = this.headFlinch;
+    this.torso.rotation.x -= f * 0.5;
+    this.torso.rotation.z += this.flinchSide * f * 0.22;
+    this.head.rotation.x -= hf * 0.9;
+    this.head.rotation.z += this.flinchSide * hf * 0.45;
+    this.lArm.rotation.x += f * 0.7;
+    this.rArm.rotation.x += f * 0.55;
+  }
+
+  hitReact(part: HitPart, amount: number, side: number) {
+    this.flinchSide = side;
+    if (part === 'head') {
+      this.headFlinch = Math.min(1.2, this.headFlinch + amount * 1.2);
+      this.flinch = Math.min(1.2, this.flinch + amount * 0.35);
+    } else this.flinch = Math.min(1.2, this.flinch + amount);
+  }
+
+  decayFlinch(dt: number) {
+    this.flinch *= Math.exp(-9 * dt);
+    this.headFlinch *= Math.exp(-7 * dt);
   }
 
   setEyesRed() {

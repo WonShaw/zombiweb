@@ -371,7 +371,7 @@ export class Turrets {
       if (!hz || hz.dead) continue;
       const part = h.object.userData.part as HitPart;
       const dmg = TURRET.damage * (part === 'head' ? 2 : part === 'limb' ? 0.8 : 1);
-      g.zombies.damage(hz, dmg, part, 'turret', dir);
+      g.zombies.damage(hz, dmg, part, 'turret', dir, { point: h.point });
       g.particles.blood(h.point, dir.clone().negate(), 6, 0.9);
       endT = h.distance;
       hitZombie = true;

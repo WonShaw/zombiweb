@@ -229,11 +229,6 @@ export class Sfx {
     this.tone(t, 0.12, out, { type: 'sine', f0: 160, f1: 50, vol: 0.5 });
   }
 
-  hitmarker() {
-    if (!this.ctx) return;
-    this.tone(this.now, 0.035, this.out(null), { type: 'triangle', f0: 2300, vol: 0.07 });
-  }
-
   explosion(pos: THREE.Vector3 | null, big = false) {
     if (!this.ctx) return;
     const t = this.now;
@@ -507,6 +502,56 @@ export class Sfx {
     const t = this.now;
     const out = this.out(null, 1, this.music);
     [659, 784, 988, 1175, 988, 1319].forEach((f, i) => this.tone(t + i * 0.1, 0.2, out, { type: 'square', f0: f, vol: 0.06 }));
+  }
+
+  // ---------- 打击反馈 ----------
+
+  /** 命中反馈：身体是闷闷的“噗”，爆头是清脆的金属“叮” */
+  hitConfirm(head: boolean) {
+    if (!this.ctx) return;
+    const t = this.now;
+    const out = this.out(null, 1);
+    if (head) {
+      this.tone(t, 0.12, out, { type: 'triangle', f0: 2400, vol: 0.14 });
+      this.tone(t, 0.09, out, { type: 'sine', f0: 3650, vol: 0.08 });
+      this.noise(t, 0.03, out, { type: 'highpass', f0: 5000, vol: 0.12 });
+    } else {
+      this.noise(t, 0.05, out, { type: 'bandpass', f0: 1300, q: 1.2, vol: 0.2 });
+      this.tone(t, 0.06, out, { type: 'sine', f0: 320, f1: 160, vol: 0.14 });
+    }
+  }
+
+  /** 击杀确认：低沉一击 + 铃声，连杀越多音调越高 */
+  killConfirm(streak: number, head: boolean) {
+    if (!this.ctx) return;
+    const t = this.now;
+    const out = this.out(null, 1);
+    const step = Math.min(streak - 1, 7) * 2;
+    const f = 784 * Math.pow(2, step / 12);
+    this.tone(t, 0.2, out, { type: 'sine', f0: 170, f1: 55, vol: 0.55 });
+    this.noise(t, 0.08, out, { type: 'lowpass', f0: 1800, vol: 0.25 });
+    this.tone(t + 0.015, 0.55, out, { type: 'sine', f0: f, vol: 0.22 });
+    this.tone(t + 0.015, 0.35, out, { type: 'sine', f0: f * 2.76, vol: 0.06 });
+    this.tone(t + 0.015, 0.4, out, { type: 'triangle', f0: f * 1.5, vol: 0.07 });
+    if (head) {
+      this.noise(t, 0.05, out, { type: 'highpass', f0: 4000, vol: 0.35 });
+      this.tone(t + 0.06, 0.45, out, { type: 'sine', f0: f * 2, vol: 0.12 });
+    }
+  }
+
+  /** 连杀达成：随连杀数升高的和弦 + 下潜重低音 */
+  multiKill(n: number) {
+    if (!this.ctx) return;
+    const t = this.now + 0.08;
+    const out = this.out(null, 1, this.music);
+    const root = 262 * Math.pow(2, (Math.min(n, 9) - 2) / 12 * 2);
+    const notes = [1, 1.26, 1.5, 2].slice(0, Math.min(4, n));
+    notes.forEach((r, i) => {
+      this.tone(t + i * 0.055, 0.7, out, { type: 'sawtooth', f0: root * r, vol: 0.05 });
+      this.tone(t + i * 0.055, 0.8, out, { type: 'triangle', f0: root * r * 2, vol: 0.07 });
+    });
+    this.tone(t, 0.6, out, { type: 'sine', f0: 110, f1: 40, vol: 0.45 });
+    this.noise(t, 0.35, out, { type: 'bandpass', f0: 600, f1: 3000, q: 0.8, vol: 0.12, attack: 0.05 });
   }
 
   /** 风声 + 低频嗡鸣的环境音 */

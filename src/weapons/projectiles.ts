@@ -87,9 +87,12 @@ export class Projectiles {
         const p = b.pos.clone().addScaledVector(b.dir, hitT);
         if (target) {
           g.stats.hits++;
-          const killed = g.zombies.damage(target.z, b.def.damage, target.part, 'bullet', b.dir);
+          const killed = g.zombies.damage(target.z, b.def.damage, target.part, 'bullet', b.dir, {
+            point: p.clone(),
+            force: 3,
+            kind: b.def.projectile!.kind === 'rocket' ? 'explosive' : undefined,
+          });
           g.hud.hitmarker(killed);
-          g.audio.hitmarker();
         }
         // 爆炸点稍微往回退一点，避免贴墙时爆炸被墙挡住
         this.explode(p.addScaledVector(b.dir, -0.15), b.def);
