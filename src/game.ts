@@ -9,7 +9,7 @@ import { WeaponSystem } from './weapons/weaponSystem';
 import { Projectiles } from './weapons/projectiles';
 import { Interactables } from './world/interactables';
 import { Powerups } from './world/powerups';
-import { Turrets, TURRET, TURRET_UPGRADES } from './world/turrets';
+import { Turrets, TURRET, TURRET_UPGRADES, type TurretUpgradeId } from './world/turrets';
 import { Particles } from './fx/particles';
 import { Decals } from './fx/decals';
 import { Lightning } from './fx/lightning';
@@ -206,9 +206,9 @@ export class Game {
     return null;
   }
 
-  buyTurretUpgrade() {
-    const next = TURRET_UPGRADES.levels[this.turrets.magLevel];
-    if (next && this.spend(next.cost)) this.turrets.upgradeMag();
+  buyTurretUpgrade(id: TurretUpgradeId) {
+    const next = TURRET_UPGRADES[id].levels[this.turrets.upgrades[id]];
+    if (next && this.spend(next.cost)) this.turrets.upgrade(id);
   }
 
   /** 退还积分（不受双倍积分影响，也不计入累计积分） */
@@ -251,11 +251,13 @@ export class Game {
     this.hud.setPrompt(null);
   }
 
-  addPoints(n: number) {
+  /** merge：高频小额加分（自动机枪命中），飘字攒一会儿合并成一个 */
+  addPoints(n: number, merge = false) {
     if (this.powerups.double > 0) n *= 2;
     this.points += n;
     this.stats.earned += n;
-    this.hud.popup(n);
+    if (merge) this.hud.popupMerged(n);
+    else this.hud.popup(n);
   }
 
   spend(cost: number) {

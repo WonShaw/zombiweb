@@ -20,18 +20,34 @@ export const TURRET = {
   pickupHold: 0.8, // 按住 F 多久搬起
 };
 
+export type TurretUpgradeId = 'mag' | 'damage' | 'autoload';
+
 /** 自动机枪升级：对所有机枪（包括以后买的）生效 */
-export const TURRET_UPGRADES = {
-  name: '弹匣扩容',
-  icon: '⛓',
-  base: `每台机枪一次装 ${TURRET.ammo} 发。`,
-  levels: [
-    {
-      cost: 3000,
-      name: '双倍弹匣',
-      desc: `所有自动机枪的弹匣容量翻倍，一次装 ${TURRET.ammo * 2} 发。已部署的机枪不会自动补满，打空后上弹时装满。`,
-    },
-  ],
+export const TURRET_UPGRADES: Record<TurretUpgradeId, { name: string; icon: string; base: string; levels: { cost: number; name: string; desc: string }[] }> = {
+  mag: {
+    name: '弹匣扩容',
+    icon: '⛓',
+    base: `每台机枪一次装 ${TURRET.ammo} 发。`,
+    levels: [
+      {
+        cost: 3000,
+        name: '双倍弹匣',
+        desc: `所有自动机枪的弹匣容量翻倍，一次装 ${TURRET.ammo * 2} 发。已部署的机枪不会自动补满，打空后上弹时装满。`,
+      },
+    ],
+  },
+  damage: {
+    name: '威力强化',
+    icon: '💥',
+    base: `每发 ${TURRET.damage} 伤害。`,
+    levels: [{ cost: 5000, name: '双倍威力', desc: `所有自动机枪每发伤害翻倍，达到 ${TURRET.damage * 2}。` }],
+  },
+  autoload: {
+    name: '自动装弹',
+    icon: '🔄',
+    base: '打空后要走过去按 F 上弹。',
+    levels: [{ cost: 10000, name: '自动装弹机', desc: `所有自动机枪打空后自己上弹（${TURRET.reload} 秒），不用再走过去按 F。没打空之前不会提前上弹。` }],
+  },
 };
 
 interface Turret {
@@ -130,8 +146,8 @@ export class Turrets {
   private barTex: THREE.Texture;
   private sound = { freq: 2300, decay: 0.22, thump: 120, vol: 0.5 };
   carry: Carry | null = null;
-  /** 弹匣扩容升级的等级 */
-  magLevel = 0;
+  /** 各项升级的等级 */
+  upgrades: Record<TurretUpgradeId, number> = { mag: 0, damage: 0, autoload: 0 };
   private ghost: THREE.Group;
   /** 左上角的“机枪没子弹”提示，每台一行 */
   private alertEl = document.getElementById('turret-alert')!;
@@ -178,12 +194,17 @@ export class Turrets {
 
   /** 当前每台机枪的弹匣容量 */
   get maxAmmo() {
-    return TURRET.ammo * 2 ** this.magLevel;
+    return TURRET.ammo * 2 ** this.upgrades.mag;
   }
 
-  /** 买下一级升级：只提高容量，不给已部署的机枪补子弹 */
-  upgradeMag() {
-    this.magLevel++;
+  /** 当前每发伤害 */
+  get damage() {
+    return TURRET.damage * 2 ** this.upgrades.damage;
+  }
+
+  /** 买下一级升级。弹匣扩容只提高容量，不给已部署的机枪补子弹 */
+  upgrade(id: TurretUpgradeId) {
+    this.upgrades[id]++;
   }
 
   /** 已放下的 + 正在搬运的新机枪 */
@@ -405,7 +426,7 @@ export class Turrets {
       const hz = h.object.userData.zombie as Zombie | undefined;
       if (!hz || hz.dead) continue;
       const part = h.object.userData.part as HitPart;
-      const dmg = TURRET.damage * (part === 'head' ? 2 : part === 'limb' ? 0.8 : 1);
+      const dmg = this.damage * (part === 'head' ? 2 : part === 'limb' ? 0.8 : 1);
       g.zombies.damage(hz, dmg, part, 'turret', dir, { point: h.point });
       g.particles.blood(h.point, dir.clone().negate(), 6, 0.9);
       endT = h.distance;
@@ -443,6 +464,8 @@ export class Turrets {
     for (const t of this.list) {
       if (t.carried) continue;
       t.cooldown -= dt;
+      // 自动装弹：只在打空之后才开始
+      if (this.upgrades.autoload > 0 && t.ammo <= 0 && t.reloadT < 0) this.reload(t);
       if (t.reloadT >= 0) {
         t.reloadT -= dt;
         if (t.reloadT < 0) {

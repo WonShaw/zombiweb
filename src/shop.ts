@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { Game } from './game';
 import { WEAPONS, CLASS_NAMES, UPGRADES, type WeaponDef, type WeaponClass, type UpgradeId } from './weapons/defs';
 import { buildGun } from './weapons/models';
-import { TURRET, TURRET_UPGRADES, buildTurretModel } from './world/turrets';
+import { TURRET, TURRET_UPGRADES, buildTurretModel, type TurretUpgradeId } from './world/turrets';
 import { clamp } from './core/util';
 
 const $ = (id: string) => document.getElementById(id)!;
@@ -88,7 +88,7 @@ export class Shop {
     $('shop-turret').addEventListener('click', (e) => {
       const up = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-tupg]');
       if (up) {
-        if (!up.disabled) this.game.buyTurretUpgrade();
+        if (!up.disabled) this.game.buyTurretUpgrade(up.dataset.tupg as TurretUpgradeId);
         this.turretMsg = null;
         this.render();
         return;
@@ -187,6 +187,7 @@ export class Shop {
     const list = g.turrets.list;
     const carry = g.turrets.carry;
     const max = g.turrets.maxAmmo;
+    const auto = g.turrets.upgrades.autoload > 0;
     const count = g.turrets.count;
     const poor = g.points < TURRET.cost;
     const label = carry ? '先放下手上的机枪' : poor ? `${TURRET.cost} 积分` : `购买 · ${TURRET.cost}`;
@@ -200,7 +201,7 @@ export class Shop {
               : t.reloadT >= 0
                 ? '上弹中'
                 : t.ammo <= 0
-                  ? '没子弹了，需要上弹'
+                  ? auto ? '没子弹了，即将自动上弹' : '没子弹了，需要上弹'
                   : `弹药 ${t.ammo} / ${max}`;
             const cls = t.ammo <= 0 && t.reloadT < 0 ? ' empty' : '';
             const frac = t.reloadT >= 0 ? 1 - t.reloadT / TURRET.reload : Math.min(1, t.ammo / max);
@@ -211,31 +212,38 @@ export class Shop {
     const pending = carry && !carry.turret ? '<div class="dep pending"><b>新</b><span>刚买的机枪，回到游戏里放下</span><i></i><em>搬运中</em></div>' : '';
     const deployedHtml = list.length || pending ? deployed + pending : '<div class="dep none">还没有部署自动机枪。</div>';
     const msg = this.turretMsg ? `<div class="msg ${this.turretMsg.ok ? 'ok' : 'err'}">${this.turretMsg.text}</div>` : '';
+    const reloadText = auto ? '打空后自动上弹' : '打空后走过去短按 <kbd>F</kbd> 上弹';
     $('shop-turret').innerHTML = `
-      <div class="turret-col">
+      <div class="turret-top">
       <div class="card turret${poor ? ' poor' : ''}">
         <div class="thumb"><img src="${this.thumbs.get('turret') ?? ''}" alt="" /></div>
         <div class="row"><b>自动机枪</b><span class="cls">部署装备</span></div>
         <div class="desc">买下后回到游戏，面前会出现虚影，选好位置按左键或 <kbd>F</kbd> 放下（右键取消并退款）。
-          自动扫射 ${TURRET.range} 米内看得见的丧尸，一次装 ${max} 发，打空后走过去短按 <kbd>F</kbd> 上弹；
-          按住 <kbd>F</kbd> 可以搬到别处。机枪击杀 +50 分，打中不加分。</div>
-        <div class="tags"><em>${Math.round(60 / TURRET.interval)} 发/分</em><em>每发 ${TURRET.damage} 伤害</em><em>射程 ${TURRET.range} 米</em><em>上弹 ${TURRET.reload} 秒</em><em>数量不限</em></div>
+          自动扫射 ${TURRET.range} 米内看得见的丧尸，一次装 ${max} 发，${reloadText}；
+          按住 <kbd>F</kbd> 可以搬到别处。机枪打中 +10 分，击杀 +50 分。</div>
+        <div class="tags"><em>${Math.round(60 / TURRET.interval)} 发/分</em><em>每发 ${g.turrets.damage} 伤害</em><em>射程 ${TURRET.range} 米</em><em>上弹 ${TURRET.reload} 秒</em><em>数量不限</em></div>
         <button class="buy" data-turret ${carry || poor ? 'disabled' : ''}>${label}</button>
         ${msg}
-      </div>
-      ${this.turretUpgradeCard()}
       </div>
       <div class="deployed">
         <h3>已部署 <small>${count} 台</small></h3>
         ${deployedHtml}
-      </div>`;
+      </div>
+      </div>
+      <h3 class="turret-upg-title">机枪升级 <small>对所有机枪生效，包括以后买的</small></h3>
+      <div class="upgrades">${this.turretUpgradeCards()}</div>`;
   }
 
-  private turretUpgradeCard() {
-    const u = TURRET_UPGRADES;
-    const cur = this.game.turrets.magLevel;
-    const next = u.levels[cur];
-    return this.upgradeCard(u, cur, next ? `<button class="buy" data-tupg ${this.game.points < next.cost ? 'disabled' : ''}>升级 · ${next.cost}</button>` : '');
+  private turretUpgradeCards() {
+    const lv = this.game.turrets.upgrades;
+    return (Object.keys(TURRET_UPGRADES) as TurretUpgradeId[])
+      .map((id) => {
+        const u = TURRET_UPGRADES[id];
+        const next = u.levels[lv[id]];
+        const btn = next ? `<button class="buy" data-tupg="${id}" ${this.game.points < next.cost ? 'disabled' : ''}>升级 · ${next.cost}</button>` : '';
+        return this.upgradeCard(u, lv[id], btn);
+      })
+      .join('');
   }
 
   private upgradeCard(u: { name: string; icon: string; base: string; levels: { cost: number; name: string; desc: string }[] }, cur: number, buyBtn: string) {

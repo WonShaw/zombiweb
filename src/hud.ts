@@ -105,6 +105,15 @@ export class Hud {
     setTimeout(() => d.remove(), 1000);
   }
 
+  private mergedPts = 0;
+  private mergedT = 0;
+
+  /** 攒起来，每 0.4 秒飘一次总数 */
+  popupMerged(n: number) {
+    if (this.mergedPts === 0) this.mergedT = 0.4;
+    this.mergedPts += n;
+  }
+
   deny() {
     this.el.points.classList.remove('deny');
     void this.el.points.offsetWidth;
@@ -170,6 +179,13 @@ export class Hud {
 
   update(dt: number) {
     const g = this.game;
+    if (this.mergedPts) {
+      this.mergedT -= dt;
+      if (this.mergedT <= 0) {
+        this.popup(this.mergedPts);
+        this.mergedPts = 0;
+      }
+    }
     const L = this.last;
     if (g.points !== L.points) {
       L.points = g.points;
