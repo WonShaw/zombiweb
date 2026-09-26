@@ -91,7 +91,10 @@ src/
   world/turrets.ts     可部署的自动机枪
   world/powerups.ts    掉落道具
   entities/            玩家、丧尸模型与 AI
-  weapons/             武器数据、枪模、射击逻辑、能量弹 / 火箭弹
+  weapons/defs.ts      武器、饮料、路障升级数据
+  weapons/models.ts    27 把枪的程序化枪模（侧面轮廓挤出、回转体、准星照门对齐开镜）
+  weapons/parts.ts     枪模零件库：木纹 / 金属材质、握把、扳机护圈、弹匣、手和袖子、按材质合并
+  weapons/             射击逻辑、能量弹 / 火箭弹
   fx/                  粒子、弹孔、血迹、闪电、伤害数字与击杀徽章
 ```
 

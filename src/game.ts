@@ -94,6 +94,7 @@ export class Game {
     this.powerups = new Powerups(this);
     this.interactables = new Interactables(this);
     this.shop = new Shop(this);
+    this.shop.prewarmThumbs();
 
     this.input.onLockChange = (locked) => {
       if (!locked && this.state === 'playing' && !this.debug) this.pause();

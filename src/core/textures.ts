@@ -703,3 +703,91 @@ export function moonTexture() {
   }
   return tex(c, false);
 }
+
+/**
+ * 枪托木纹：沿 u 方向的年轮线 + 顺纹的细小毛孔。
+ * u 对应枪身前后方向（每米重复 2 次），v 对应上下。返回颜色贴图和粗糙度贴图。
+ */
+export function gunWoodTextures(base: [number, number, number], seed: number) {
+  const W = 512, H = 256;
+  const r = seeded(seed);
+  const warp = noiseField(W, H, 2, 4, 3, r);
+  const tone = noiseField(W, H, 4, 6, 3, r);
+  const streak = noiseField(W, H, 3, 48, 2, r);
+  const pores = noiseField(W, H, 24, 128, 2, r);
+  const col = mk(W, H), rough = mk(W, H);
+  const ci = col.g.createImageData(W, H), ri = rough.g.createImageData(W, H);
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const i = y * W + x;
+      // 细密、基本平行的直纹：年轮只轻微弯曲，颜色起伏靠低频色块和顺纹条带
+      const v = (y / H) * 36 + warp[i] * 2.2;
+      const ring = 0.5 + 0.5 * Math.sin(v * Math.PI * 2);
+      const late = ring * ring * ring;
+      const p = pores[i] < 0.28 ? (0.28 - pores[i]) * 1.6 : 0;
+      const k = 0.84 + (tone[i] - 0.5) * 0.3 + (streak[i] - 0.5) * 0.18 - late * 0.16 - p * 0.3;
+      const o = i * 4;
+      ci.data[o] = c255(base[0] * k);
+      ci.data[o + 1] = c255(base[1] * k * 0.98);
+      ci.data[o + 2] = c255(base[2] * k * 0.95);
+      ci.data[o + 3] = 255;
+      const rv = c255(150 + late * 50 + p * 120 + (tone[i] - 0.5) * 30);
+      ri.data[o] = ri.data[o + 1] = ri.data[o + 2] = rv;
+      ri.data[o + 3] = 255;
+    }
+  }
+  col.g.putImageData(ci, 0, 0);
+  rough.g.putImageData(ri, 0, 0);
+  const map = tex(col.c);
+  const roughMap = tex(rough.c);
+  roughMap.colorSpace = THREE.NoColorSpace;
+  for (const t of [map, roughMap]) t.repeat.set(2.5, 6);
+  return { map, roughMap };
+}
+
+/**
+ * 枪械金属：细颗粒 + 顺着枪身的拉丝 + 零星划痕。
+ * 颜色贴图接近白色（乘以材质颜色），粗糙度贴图让表面反光不那么均匀。
+ */
+export function gunMetalTextures(seed: number) {
+  const S = 256;
+  const r = seeded(seed);
+  const grain = noiseField(S, S, 64, 64, 2, r);
+  const brush = noiseField(S, S, 6, 96, 2, r);
+  const blotch = noiseField(S, S, 4, 4, 3, r);
+  const col = mk(S, S), rough = mk(S, S);
+  const ci = col.g.createImageData(S, S), ri = rough.g.createImageData(S, S);
+  for (let i = 0; i < S * S; i++) {
+    const o = i * 4;
+    const k = 0.86 + (grain[i] - 0.5) * 0.12 + (brush[i] - 0.5) * 0.1 + (blotch[i] - 0.5) * 0.16;
+    ci.data[o] = ci.data[o + 1] = ci.data[o + 2] = c255(255 * k);
+    ci.data[o + 3] = 255;
+    const rv = c255(170 + (grain[i] - 0.5) * 60 + (brush[i] - 0.5) * 50 + (blotch[i] - 0.5) * 70);
+    ri.data[o] = ri.data[o + 1] = ri.data[o + 2] = rv;
+    ri.data[o + 3] = 255;
+  }
+  col.g.putImageData(ci, 0, 0);
+  rough.g.putImageData(ri, 0, 0);
+  // 划痕：亮的细线，颜色和粗糙度上都画
+  for (let n = 0; n < 40; n++) {
+    const x = r() * S, y = r() * S, len = 8 + r() * 40, a = (r() - 0.5) * 0.5;
+    const x2 = x + Math.cos(a) * len, y2 = y + Math.sin(a) * len;
+    col.g.strokeStyle = `rgba(255,255,255,${0.15 + r() * 0.2})`;
+    col.g.lineWidth = 0.6;
+    col.g.beginPath();
+    col.g.moveTo(x, y);
+    col.g.lineTo(x2, y2);
+    col.g.stroke();
+    rough.g.strokeStyle = 'rgba(90,90,90,0.5)';
+    rough.g.lineWidth = 0.8;
+    rough.g.beginPath();
+    rough.g.moveTo(x, y);
+    rough.g.lineTo(x2, y2);
+    rough.g.stroke();
+  }
+  const map = tex(col.c);
+  const roughMap = tex(rough.c);
+  roughMap.colorSpace = THREE.NoColorSpace;
+  for (const t of [map, roughMap]) t.repeat.set(7, 7);
+  return { map, roughMap };
+}

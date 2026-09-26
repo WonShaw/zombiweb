@@ -103,7 +103,7 @@ export class Shop {
   }
 
   open() {
-    if (!this.thumbs.size) this.renderThumbs();
+    this.renderThumbs();
     this.slot = this.game.weapons.cur;
     this.turretMsg = null;
     $('shop').classList.remove('hidden');
@@ -272,71 +272,108 @@ export class Shop {
       .join('');
   }
 
-  /** 用游戏渲染器离屏渲染每把枪的侧视图做缩略图 */
+  /** 缩略图渲染用的离屏场景，渲染完全部缩略图后释放 */
+  private thumbRig: {
+    rt: THREE.WebGLRenderTarget;
+    scene: THREE.Scene;
+    cam: THREE.OrthographicCamera;
+    buf: Uint8Array;
+    ctx: CanvasRenderingContext2D;
+    img: ImageData;
+    queue: [string, () => THREE.Object3D][];
+  } | null = null;
+  private static readonly TW = 480;
+  private static readonly TH = 200;
+
+  /** 菜单界面空闲时一把一把地预渲染缩略图，第一次打开商店就不会卡一下 */
+  prewarmThumbs() {
+    const step = () => {
+      if (this.renderNextThumb()) setTimeout(step, 40);
+    };
+    setTimeout(step, 300);
+  }
+
+  /** 把还没渲染的缩略图一次性渲染完 */
   private renderThumbs() {
+    while (this.renderNextThumb());
+  }
+
+  /** 用游戏渲染器离屏渲染一把枪的侧视图。返回是否还有没渲染的 */
+  private renderNextThumb(): boolean {
+    const W = Shop.TW, H = Shop.TH;
+    if (!this.thumbRig) {
+      if (this.thumbs.size) return false;
+      const rt = new THREE.WebGLRenderTarget(W, H);
+      rt.texture.colorSpace = THREE.SRGBColorSpace;
+      const scene = new THREE.Scene();
+      scene.environment = this.game.vmScene.environment;
+      scene.environmentIntensity = 0.7;
+      scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+      const key = new THREE.DirectionalLight(0xfff0dd, 2.4);
+      key.position.set(1, 3, 4);
+      const rim = new THREE.DirectionalLight(0x9fb8ff, 1.2);
+      rim.position.set(-2, 1, -3);
+      scene.add(key, rim);
+      const canvas = document.createElement('canvas');
+      canvas.width = W;
+      canvas.height = H;
+      const ctx = canvas.getContext('2d')!;
+      const queue: [string, () => THREE.Object3D][] = Object.values(WEAPONS).map((d) => [d.id, () => buildGun(d.model, false).group]);
+      queue.push(['turret', () => buildTurretModel().group]);
+      this.thumbRig = {
+        rt, scene, ctx, queue,
+        cam: new THREE.OrthographicCamera(-1, 1, 1, -1, 0.01, 20),
+        buf: new Uint8Array(W * H * 4),
+        img: ctx.createImageData(W, H),
+      };
+    }
+    const rig = this.thumbRig;
+    const item = rig.queue.shift();
+    if (!item) {
+      rig.rt.dispose();
+      this.thumbRig = null;
+      return false;
+    }
+    const [id, make] = item;
     const r = this.game.renderer;
-    const W = 480, H = 200;
-    const rt = new THREE.WebGLRenderTarget(W, H);
-    rt.texture.colorSpace = THREE.SRGBColorSpace;
-    const scene = new THREE.Scene();
-    scene.environment = this.game.vmScene.environment;
-    scene.environmentIntensity = 0.7;
-    scene.add(new THREE.AmbientLight(0xffffff, 0.5));
-    const key = new THREE.DirectionalLight(0xfff0dd, 2.4);
-    key.position.set(1, 3, 4);
-    const rim = new THREE.DirectionalLight(0x9fb8ff, 1.2);
-    rim.position.set(-2, 1, -3);
-    scene.add(key, rim);
-    const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.01, 20);
-    const buf = new Uint8Array(W * H * 4);
-    const canvas = document.createElement('canvas');
-    canvas.width = W;
-    canvas.height = H;
-    const ctx = canvas.getContext('2d')!;
-    const img = ctx.createImageData(W, H);
     const prevColor = r.getClearColor(new THREE.Color());
     const prevAlpha = r.getClearAlpha();
-    const box = new THREE.Box3();
-    const size = new THREE.Vector3();
-    const center = new THREE.Vector3();
-
-    const items: [string, THREE.Object3D][] = Object.values(WEAPONS).map((d) => [d.id, buildGun(d.model, false).group]);
-    items.push(['turret', buildTurretModel().group]);
-    for (const [id, model] of items) {
-      const wrap = new THREE.Group();
-      model.rotation.y = -Math.PI / 2; // 枪口朝右
-      wrap.add(model);
-      wrap.rotation.set(0.22, 0, 0.04);
-      scene.add(wrap);
-      wrap.updateMatrixWorld(true);
-      box.setFromObject(wrap);
-      box.getSize(size);
-      box.getCenter(center);
-      const aspect = W / H;
-      const halfW = Math.max(size.x / 2, (size.y / 2) * aspect) * 1.12;
-      cam.left = -halfW;
-      cam.right = halfW;
-      cam.top = halfW / aspect;
-      cam.bottom = -halfW / aspect;
-      cam.position.set(center.x, center.y, center.z + 5);
-      cam.lookAt(center);
-      cam.updateProjectionMatrix();
-      r.setRenderTarget(rt);
-      r.setClearColor(0x000000, 0);
-      r.clear();
-      r.render(scene, cam);
-      r.readRenderTargetPixels(rt, 0, 0, W, H, buf);
-      // WebGL 读出来是上下颠倒的
-      for (let y = 0; y < H; y++) img.data.set(buf.subarray((H - 1 - y) * W * 4, (H - y) * W * 4), y * W * 4);
-      ctx.putImageData(img, 0, 0);
-      this.thumbs.set(id, canvas.toDataURL('image/png'));
-      scene.remove(wrap);
-      wrap.traverse((o) => {
-        if (o instanceof THREE.Mesh) o.geometry.dispose();
-      });
-    }
-    r.setRenderTarget(null);
+    const prevTarget = r.getRenderTarget();
+    const model = make();
+    const wrap = new THREE.Group();
+    model.rotation.y = -Math.PI / 2; // 枪口朝右
+    wrap.add(model);
+    wrap.rotation.set(0.22, 0, 0.04);
+    rig.scene.add(wrap);
+    wrap.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(wrap);
+    const size = box.getSize(new THREE.Vector3());
+    const center = box.getCenter(new THREE.Vector3());
+    const aspect = W / H;
+    const halfW = Math.max(size.x / 2, (size.y / 2) * aspect) * 1.12;
+    const cam = rig.cam;
+    cam.left = -halfW;
+    cam.right = halfW;
+    cam.top = halfW / aspect;
+    cam.bottom = -halfW / aspect;
+    cam.position.set(center.x, center.y, center.z + 5);
+    cam.lookAt(center);
+    cam.updateProjectionMatrix();
+    r.setRenderTarget(rig.rt);
+    r.setClearColor(0x000000, 0);
+    r.clear();
+    r.render(rig.scene, cam);
+    r.readRenderTargetPixels(rig.rt, 0, 0, W, H, rig.buf);
+    // WebGL 读出来是上下颠倒的
+    for (let y = 0; y < H; y++) rig.img.data.set(rig.buf.subarray((H - 1 - y) * W * 4, (H - y) * W * 4), y * W * 4);
+    rig.ctx.putImageData(rig.img, 0, 0);
+    this.thumbs.set(id, rig.ctx.canvas.toDataURL('image/png'));
+    rig.scene.remove(wrap);
+    wrap.traverse((o) => {
+      if (o instanceof THREE.Mesh) o.geometry.dispose();
+    });
+    r.setRenderTarget(prevTarget);
     r.setClearColor(prevColor, prevAlpha);
-    rt.dispose();
+    return true;
   }
 }
