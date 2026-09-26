@@ -3,7 +3,7 @@ import type { Game } from './game';
 import { WEAPONS, CLASS_NAMES, UPGRADES, type WeaponDef, type WeaponClass, type UpgradeId } from './weapons/defs';
 import { buildGun } from './weapons/models';
 import { MAX_GUNS } from './weapons/weaponSystem';
-import { TURRET, TURRET_UPGRADES, buildTurretModel, type TurretUpgradeId } from './world/turrets';
+import { TURRET_KINDS, TURRET_UPGRADES, buildTurretModel, type TurretKind, type TurretUpgradeId } from './world/turrets';
 import { clamp } from './core/util';
 
 const $ = (id: string) => document.getElementById(id)!;
@@ -50,7 +50,7 @@ function tagsOf(d: WeaponDef) {
 export class Shop {
   private thumbs = new Map<string, string>();
   private tab: Tab = 'weapons';
-  private turretMsg: { text: string; ok: boolean } | null = null;
+  private turretMsg: { text: string; ok: boolean; kind: TurretKind } | null = null;
   private cat: Cat = 'all';
   private slot = 0;
 
@@ -102,8 +102,9 @@ export class Shop {
       }
       const b = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-turret]');
       if (!b || b.disabled) return;
-      const err = this.game.buyTurret();
-      this.turretMsg = err ? { text: err, ok: false } : { text: '已买下。按 B 回到游戏，挑好位置按左键或 F 放下', ok: true };
+      const kind = b.dataset.turret as TurretKind;
+      const err = this.game.buyTurret(kind);
+      this.turretMsg = err ? { text: err, ok: false, kind } : { text: '已买下。按 B 回到游戏，挑好位置按左键或 F 放下', ok: true, kind };
       this.render();
     });
     $('shop-close').addEventListener('click', () => this.game.closeShop(true));
@@ -193,51 +194,56 @@ export class Shop {
 
   private renderTurret() {
     const g = this.game;
-    const list = g.turrets.list;
-    const carry = g.turrets.carry;
-    const max = g.turrets.maxAmmo;
-    const auto = g.turrets.upgrades.autoload > 0;
-    const count = g.turrets.count;
-    const poor = g.points < TURRET.cost;
-    const label = carry ? '先放下手上的机枪' : poor ? `${TURRET.cost} 积分` : `购买 · ${TURRET.cost}`;
+    const T = g.turrets;
+    const list = T.list;
+    const carry = T.carry;
+    const auto = T.upgrades.autoload > 0;
     const p = g.player.pos;
-    const deployed = list.length
-      ? list
-          .map((t, i) => {
-            const d = Math.round(Math.hypot(t.pos.x - p.x, t.pos.z - p.z));
-            const status = t.carried
-              ? '搬运中'
-              : t.reloadT >= 0
-                ? '上弹中'
-                : t.ammo <= 0
-                  ? auto ? '没子弹了，即将自动上弹' : '没子弹了，需要上弹'
-                  : `弹药 ${t.ammo} / ${max}`;
-            const cls = t.ammo <= 0 && t.reloadT < 0 ? ' empty' : '';
-            const frac = t.reloadT >= 0 ? 1 - t.reloadT / TURRET.reload : Math.min(1, t.ammo / max);
-            return `<div class="dep${cls}"><b>#${i + 1}</b><span>${status}</span><i><s style="width:${Math.round(frac * 100)}%"></s></i><em>距你 ${d} 米</em></div>`;
-          })
-          .join('')
+    const deployed = list
+      .map((t, i) => {
+        const K = TURRET_KINDS[t.kind];
+        const max = T.maxAmmo(t.kind);
+        const d = Math.round(Math.hypot(t.pos.x - p.x, t.pos.z - p.z));
+        const status = t.carried
+          ? '搬运中'
+          : t.reloadT >= 0
+            ? '上弹中'
+            : t.ammo <= 0
+              ? auto ? '没子弹了，即将自动上弹' : '没子弹了，需要上弹'
+              : `弹药 ${t.ammo} / ${max}`;
+        const cls = t.ammo <= 0 && t.reloadT < 0 ? ' empty' : '';
+        const frac = t.reloadT >= 0 ? 1 - t.reloadT / K.reload : Math.min(1, t.ammo / max);
+        return `<div class="dep${cls}"><b>#${i + 1}</b><span>${K.name} · ${status}</span><i><s style="width:${Math.round(frac * 100)}%"></s></i><em>距你 ${d} 米</em></div>`;
+      })
+      .join('');
+    const pending = carry && !carry.turret
+      ? `<div class="dep pending"><b>新</b><span>刚买的${TURRET_KINDS[carry.kind].name}，回到游戏里放下</span><i></i><em>搬运中</em></div>`
       : '';
-    const pending = carry && !carry.turret ? '<div class="dep pending"><b>新</b><span>刚买的机枪，回到游戏里放下</span><i></i><em>搬运中</em></div>' : '';
-    const deployedHtml = list.length || pending ? deployed + pending : '<div class="dep none">还没有部署自动机枪。</div>';
-    const msg = this.turretMsg ? `<div class="msg ${this.turretMsg.ok ? 'ok' : 'err'}">${this.turretMsg.text}</div>` : '';
+    const deployedHtml = list.length || pending ? deployed + pending : '<div class="dep none">还没有部署机枪。</div>';
     const reloadText = auto ? '打空后自动上弹' : '打空后走过去短按 <kbd>F</kbd> 上弹';
-    $('shop-turret').innerHTML = `
-      <div class="turret-top">
-      <div class="card turret${poor ? ' poor' : ''}">
-        <div class="thumb"><img src="${this.thumbs.get('turret') ?? ''}" alt="" /></div>
-        <div class="row"><b>自动机枪</b><span class="cls">部署装备</span></div>
-        <div class="desc">买下后回到游戏，面前会出现虚影，选好位置按左键或 <kbd>F</kbd> 放下（右键取消并退款）。
-          自动扫射 ${TURRET.range} 米内看得见的丧尸，一次装 ${max} 发，${reloadText}；
-          按住 <kbd>F</kbd> 可以搬到别处。机枪打中 +10 分，击杀 +50 分。</div>
-        <div class="tags"><em>${Math.round(60 / TURRET.interval)} 发/分</em><em>每发 ${g.turrets.damage} 伤害</em><em>射程 ${TURRET.range} 米</em><em>上弹 ${TURRET.reload} 秒</em><em>数量不限</em></div>
-        <button class="buy" data-turret ${carry || poor ? 'disabled' : ''}>${label}</button>
+    const card = (kind: TurretKind, thumb: string, extra: string) => {
+      const K = TURRET_KINDS[kind];
+      const poor = g.points < K.cost;
+      const label = carry ? '先放下手上的机枪' : poor ? `${K.cost} 积分` : `购买 · ${K.cost}`;
+      const msg = this.turretMsg && this.turretMsg.kind === kind ? `<div class="msg ${this.turretMsg.ok ? 'ok' : 'err'}">${this.turretMsg.text}</div>` : '';
+      return `<div class="card turret${poor ? ' poor' : ''}">
+        <div class="thumb"><img src="${this.thumbs.get(thumb) ?? ''}" alt="" /></div>
+        <div class="row"><b>${K.name}</b><span class="cls">部署装备</span></div>
+        <div class="desc">自动扫射 ${K.range} 米内看得见的丧尸，一次装 ${T.maxAmmo(kind)} 发，${reloadText}。${extra}</div>
+        <div class="tags"><em>${Math.round(60 / K.interval)} 发/分</em><em>每发 ${T.damageOf(kind)} 伤害</em>${K.pierce ? `<em>穿透 ${K.pierce}</em>` : ''}<em>射程 ${K.range} 米</em><em>上弹 ${K.reload} 秒</em></div>
+        <button class="buy" data-turret="${kind}" ${carry || poor ? 'disabled' : ''}>${label}</button>
         ${msg}
+      </div>`;
+    };
+    $('shop-turret').innerHTML = `
+      <p class="upg-note">买下后回到游戏，面前会出现虚影，选好位置按左键或 <kbd>F</kbd> 放下（右键取消并退款）；按住 <kbd>F</kbd> 可以搬到别处。数量不限。机枪打中 +10 分，击杀 +50 分。</p>
+      <div class="turret-cards">
+        ${card('light', 'turret', '')}
+        ${card('heavy', 'turret-heavy', '子弹能再穿透一只丧尸（第二只伤害 ×0.7）。')}
       </div>
       <div class="deployed">
-        <h3>已部署 <small>${count} 台</small></h3>
+        <h3>已部署 <small>${T.count} 台</small></h3>
         ${deployedHtml}
-      </div>
       </div>
       <h3 class="turret-upg-title">机枪升级 <small>对所有机枪生效，包括以后买的</small></h3>
       <div class="upgrades">${this.turretUpgradeCards()}</div>`;
@@ -328,7 +334,8 @@ export class Shop {
       canvas.height = H;
       const ctx = canvas.getContext('2d')!;
       const queue: [string, () => THREE.Object3D][] = Object.values(WEAPONS).map((d) => [d.id, () => buildGun(d.model, false).group]);
-      queue.push(['turret', () => buildTurretModel().group]);
+      queue.push(['turret', () => buildTurretModel('light').group]);
+      queue.push(['turret-heavy', () => buildTurretModel('heavy').group]);
       this.thumbRig = {
         rt, scene, ctx, queue,
         cam: new THREE.OrthographicCamera(-1, 1, 1, -1, 0.01, 20),

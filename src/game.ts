@@ -9,7 +9,7 @@ import { WeaponSystem } from './weapons/weaponSystem';
 import { Projectiles } from './weapons/projectiles';
 import { Interactables } from './world/interactables';
 import { Powerups } from './world/powerups';
-import { Turrets, TURRET, TURRET_UPGRADES, type TurretUpgradeId } from './world/turrets';
+import { Turrets, TURRET_KINDS, TURRET_UPGRADES, type TurretKind, type TurretUpgradeId } from './world/turrets';
 import { Particles } from './fx/particles';
 import { Decals } from './fx/decals';
 import { Lightning } from './fx/lightning';
@@ -208,11 +208,11 @@ export class Game {
     if (this.spend(def.cost)) this.weapons.give(id, slot);
   }
 
-  /** 买一台自动机枪：扣分后进入搬运模式，回到游戏里自己挑位置放。失败时返回原因 */
-  buyTurret(): string | null {
+  /** 买一台机枪（自动 / 重型）：扣分后进入搬运模式，回到游戏里自己挑位置放。失败时返回原因 */
+  buyTurret(kind: TurretKind): string | null {
     if (this.turrets.carry) return '先把手上的机枪放下';
-    if (!this.spend(TURRET.cost)) return '积分不够';
-    this.turrets.startCarryNew();
+    if (!this.spend(TURRET_KINDS[kind].cost)) return '积分不够';
+    this.turrets.startCarryNew(kind);
     return null;
   }
 

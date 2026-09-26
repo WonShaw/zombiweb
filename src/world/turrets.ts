@@ -7,18 +7,34 @@ import type { Interactable } from './interactables';
 import * as TX from '../core/textures';
 import { angleDiff, damp, rand } from '../core/util';
 
+/** 两种机枪共用的参数 */
 export const TURRET = {
-  cost: 10000,
-  ammo: 200,
-  interval: 0.1, // 600 发/分
-  damage: 110,
-  range: 20,
-  reload: 2.5,
   turnSpeed: 5, // 弧度/秒
-  radius: 0.35, // 碰撞半径
   carryDist: 1.4, // 搬运时虚影在玩家前方的距离
   pickupHold: 0.8, // 按住 F 多久搬起
 };
+
+export type TurretKind = 'light' | 'heavy';
+
+/** 自动机枪 / 重型机枪 */
+export const TURRET_KINDS: Record<TurretKind, {
+  name: string;
+  cost: number;
+  ammo: number;
+  damage: number;
+  /** 射击间隔（秒） */
+  interval: number;
+  range: number;
+  reload: number;
+  /** 能穿透几只丧尸，每穿一只伤害 ×0.7 */
+  pierce: number;
+  /** 碰撞半径 */
+  radius: number;
+}> = {
+  light: { name: '自动机枪', cost: 8000, ammo: 200, damage: 110, interval: 0.1, range: 20, reload: 2.5, pierce: 0, radius: 0.35 },
+  heavy: { name: '重型机枪', cost: 14000, ammo: 400, damage: 200, interval: 0.12, range: 24, reload: 3.5, pierce: 1, radius: 0.42 },
+};
+const L = TURRET_KINDS.light, H = TURRET_KINDS.heavy;
 
 export type TurretUpgradeId = 'mag' | 'damage' | 'autoload';
 
@@ -27,31 +43,32 @@ export const TURRET_UPGRADES: Record<TurretUpgradeId, { name: string; icon: stri
   mag: {
     name: '弹匣扩容',
     icon: '⛓',
-    base: `每台机枪一次装 ${TURRET.ammo} 发。`,
+    base: `自动机枪一次装 ${L.ammo} 发，重型机枪 ${H.ammo} 发。`,
     levels: [
       {
         cost: 3000,
         name: '双倍弹匣',
-        desc: `所有自动机枪的弹匣容量翻倍，一次装 ${TURRET.ammo * 2} 发。已部署的机枪不会自动补满，打空后上弹时装满。`,
+        desc: `所有机枪的弹匣容量翻倍（自动机枪 ${L.ammo * 2} 发、重型机枪 ${H.ammo * 2} 发）。已部署的机枪不会自动补满，打空后上弹时装满。`,
       },
     ],
   },
   damage: {
     name: '威力强化',
     icon: '💥',
-    base: `每发 ${TURRET.damage} 伤害。`,
-    levels: [{ cost: 5000, name: '双倍威力', desc: `所有自动机枪每发伤害翻倍，达到 ${TURRET.damage * 2}。` }],
+    base: `自动机枪每发 ${L.damage} 伤害，重型机枪每发 ${H.damage}。`,
+    levels: [{ cost: 5000, name: '双倍威力', desc: `所有机枪每发伤害翻倍（自动机枪 ${L.damage * 2}、重型机枪 ${H.damage * 2}）。` }],
   },
   autoload: {
     name: '自动装弹',
     icon: '🔄',
     base: '打空后要走过去按 F 上弹。',
-    levels: [{ cost: 10000, name: '自动装弹机', desc: `所有自动机枪打空后自己上弹（${TURRET.reload} 秒），不用再走过去按 F。没打空之前不会提前上弹。` }],
+    levels: [{ cost: 10000, name: '自动装弹机', desc: '所有机枪打空后自己上弹，不用再走过去按 F。没打空之前不会提前上弹。' }],
   },
 };
 
 interface Turret {
   id: number;
+  kind: TurretKind;
   pos: THREE.Vector3;
   group: THREE.Group;
   head: THREE.Group;
@@ -75,6 +92,7 @@ interface Turret {
 /** 正在搬运的机枪：turret 为 null 表示刚买的新机枪 */
 interface Carry {
   turret: Turret | null;
+  kind: TurretKind;
   spot: THREE.Vector3;
   yaw: number;
   valid: boolean;
@@ -86,22 +104,28 @@ const TM = {
   metal: new THREE.MeshStandardMaterial({ color: 0x2c2e32, roughness: 0.45, metalness: 0.8 }),
   dark: new THREE.MeshStandardMaterial({ color: 0x18191b, roughness: 0.5, metalness: 0.7 }),
   olive: new THREE.MeshStandardMaterial({ color: 0x4b5231, roughness: 0.7, metalness: 0.3 }),
+  gun: new THREE.MeshStandardMaterial({ color: 0x3a3e44, roughness: 0.5, metalness: 0.6 }),
+  shield: new THREE.MeshStandardMaterial({ color: 0x4a5058, roughness: 0.55, metalness: 0.5 }),
+  hazard: new THREE.MeshStandardMaterial({ color: 0xd8a21c, roughness: 0.6, metalness: 0.2 }),
 };
 
 /** 三脚架 + 可旋转的枪身（枪口朝 -z）。商店缩略图也用它 */
-export function buildTurretModel() {
+export function buildTurretModel(kind: TurretKind = 'light') {
+  const heavy = kind === 'heavy';
   const group = new THREE.Group();
-  const post = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.045, 0.8, 10), TM.dark);
+  const post = new THREE.Mesh(new THREE.CylinderGeometry(heavy ? 0.05 : 0.035, heavy ? 0.065 : 0.045, 0.8, 10), TM.dark);
   post.position.y = 0.45;
   group.add(post);
-  for (let i = 0; i < 3; i++) {
-    const a = (i / 3) * Math.PI * 2 + 0.4;
-    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.025, 0.75, 8), TM.metal);
-    leg.position.set(Math.cos(a) * 0.2, 0.33, Math.sin(a) * 0.2);
-    leg.rotation.set(Math.sin(a) * 0.55, 0, -Math.cos(a) * 0.55);
+  const legs = heavy ? 4 : 3;
+  for (let i = 0; i < legs; i++) {
+    const a = (i / legs) * Math.PI * 2 + 0.4;
+    const spread = heavy ? 0.26 : 0.2;
+    const leg = new THREE.Mesh(new THREE.CylinderGeometry(heavy ? 0.028 : 0.02, heavy ? 0.034 : 0.025, 0.75, 8), TM.metal);
+    leg.position.set(Math.cos(a) * spread, 0.33, Math.sin(a) * spread);
+    leg.rotation.set(Math.sin(a) * 0.6, 0, -Math.cos(a) * 0.6);
     group.add(leg);
-    const foot = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.02, 0.07), TM.dark);
-    foot.position.set(Math.cos(a) * 0.4, 0.01, Math.sin(a) * 0.4);
+    const foot = new THREE.Mesh(new THREE.BoxGeometry(heavy ? 0.1 : 0.07, 0.02, heavy ? 0.1 : 0.07), TM.dark);
+    foot.position.set(Math.cos(a) * spread * 2, 0.01, Math.sin(a) * spread * 2);
     group.add(foot);
   }
   const head = new THREE.Group();
@@ -114,22 +138,47 @@ export function buildTurretModel() {
     head.add(mesh);
     return mesh;
   };
-  add(new THREE.BoxGeometry(0.13, 0.14, 0.46), TM.dark, 0, 0.02, 0.02);
-  const jacket = new THREE.CylinderGeometry(0.04, 0.04, 0.5, 12);
-  jacket.rotateX(Math.PI / 2);
-  add(jacket, TM.metal, 0, 0.02, -0.45);
-  for (let i = 0; i < 5; i++) add(new THREE.BoxGeometry(0.085, 0.085, 0.015), TM.dark, 0, 0.02, -0.28 - i * 0.08);
-  const barrel = new THREE.CylinderGeometry(0.022, 0.026, 0.1, 10);
-  barrel.rotateX(Math.PI / 2);
-  add(barrel, TM.dark, 0, 0.02, -0.74);
-  add(new THREE.BoxGeometry(0.14, 0.17, 0.22), TM.olive, -0.14, -0.02, 0.02);
-  add(new THREE.BoxGeometry(0.5, 0.32, 0.02), TM.olive, 0, 0.05, -0.2);
-  add(new THREE.BoxGeometry(0.03, 0.1, 0.03), TM.dark, 0.05, -0.06, 0.26);
-  add(new THREE.BoxGeometry(0.03, 0.1, 0.03), TM.dark, -0.05, -0.06, 0.26);
+  const alongZ = (r1: number, r2: number, len: number, seg = 12) => {
+    const g = new THREE.CylinderGeometry(r1, r2, len, seg);
+    g.rotateX(Math.PI / 2);
+    return g;
+  };
+  let muzzleZ: number;
+  if (!heavy) {
+    add(new THREE.BoxGeometry(0.13, 0.14, 0.46), TM.dark, 0, 0.02, 0.02);
+    add(alongZ(0.04, 0.04, 0.5), TM.metal, 0, 0.02, -0.45);
+    for (let i = 0; i < 5; i++) add(new THREE.BoxGeometry(0.085, 0.085, 0.015), TM.dark, 0, 0.02, -0.28 - i * 0.08);
+    add(alongZ(0.022, 0.026, 0.1, 10), TM.dark, 0, 0.02, -0.74);
+    add(new THREE.BoxGeometry(0.14, 0.17, 0.22), TM.olive, -0.14, -0.02, 0.02);
+    add(new THREE.BoxGeometry(0.5, 0.32, 0.02), TM.olive, 0, 0.05, -0.2);
+    muzzleZ = -0.8;
+  } else {
+    // 重型机枪：更大的机匣、粗枪管 + 散热套、枪口制退器、两侧大弹药箱、带观察缝的钢盾
+    add(new THREE.BoxGeometry(0.18, 0.18, 0.56), TM.gun, 0, 0.02, 0.02);
+    add(new THREE.BoxGeometry(0.19, 0.03, 0.3), TM.dark, 0, 0.12, 0.05);
+    add(alongZ(0.058, 0.058, 0.58, 14), TM.metal, 0, 0.02, -0.52);
+    for (let i = 0; i < 7; i++) add(alongZ(0.066, 0.066, 0.018, 14), TM.dark, 0, 0.02, -0.3 - i * 0.07);
+    add(alongZ(0.03, 0.034, 0.14, 12), TM.dark, 0, 0.02, -0.87);
+    add(new THREE.BoxGeometry(0.1, 0.07, 0.08), TM.dark, 0, 0.02, -0.97);
+    for (const x of [-0.2, 0.2]) {
+      add(new THREE.BoxGeometry(0.16, 0.2, 0.26), TM.gun, x, -0.03, 0.04);
+      add(new THREE.BoxGeometry(0.165, 0.025, 0.265), TM.hazard, x, 0.05, 0.04);
+    }
+    const shield = new THREE.BoxGeometry(0.7, 0.44, 0.025);
+    add(shield, TM.shield, 0, 0.06, -0.24);
+    add(new THREE.BoxGeometry(0.16, 0.04, 0.03), TM.dark, 0, 0.14, -0.24);
+    add(new THREE.BoxGeometry(0.035, 0.12, 0.035), TM.dark, 0.07, -0.08, 0.32);
+    add(new THREE.BoxGeometry(0.035, 0.12, 0.035), TM.dark, -0.07, -0.08, 0.32);
+    muzzleZ = -1.02;
+  }
+  if (!heavy) {
+    add(new THREE.BoxGeometry(0.03, 0.1, 0.03), TM.dark, 0.05, -0.06, 0.26);
+    add(new THREE.BoxGeometry(0.03, 0.1, 0.03), TM.dark, -0.05, -0.06, 0.26);
+  }
   const lamp = new THREE.MeshBasicMaterial({ color: 0x3dff6a });
-  add(new THREE.SphereGeometry(0.025, 10, 8), lamp, 0, 0.11, 0.18);
+  add(new THREE.SphereGeometry(0.025, 10, 8), lamp, 0, heavy ? 0.16 : 0.11, heavy ? 0.24 : 0.18);
   const muzzle = new THREE.Object3D();
-  muzzle.position.set(0, 0.02, -0.8);
+  muzzle.position.set(0, 0.02, muzzleZ);
   head.add(muzzle);
   return { group, head, muzzle, lamp };
 }
@@ -145,10 +194,11 @@ export class Turrets {
   private flashTex = TX.flashTexture();
   private barTex: THREE.Texture;
   private sound = { freq: 2300, decay: 0.22, thump: 120, vol: 0.5 };
+  private heavySound = { freq: 1500, decay: 0.34, thump: 85, vol: 0.62 };
   carry: Carry | null = null;
   /** 各项升级的等级 */
   upgrades: Record<TurretUpgradeId, number> = { mag: 0, damage: 0, autoload: 0 };
-  private ghost: THREE.Group;
+  private ghosts = {} as Record<TurretKind, THREE.Group>;
   /** 左上角的“机枪没子弹”提示，每台一行 */
   private alertEl = document.getElementById('turret-alert')!;
   private alertTip: HTMLDivElement;
@@ -174,17 +224,21 @@ export class Turrets {
       this.tracers.push({ mesh: m, t: 0 });
     }
 
-    // 搬运时显示的半透明虚影 + 地面占位圈
-    this.ghost = buildTurretModel().group;
-    this.ghost.traverse((o) => {
-      if (o instanceof THREE.Mesh) o.material = this.ghostMat;
-    });
-    const ring = new THREE.Mesh(new THREE.RingGeometry(TURRET.radius, TURRET.radius + 0.07, 32), this.ghostMat);
-    ring.rotation.x = -Math.PI / 2;
-    ring.position.y = 0.02;
-    this.ghost.add(ring);
-    this.ghost.visible = false;
-    game.scene.add(this.ghost);
+    // 搬运时显示的半透明虚影 + 地面占位圈（两种机枪各一个）
+    for (const kind of Object.keys(TURRET_KINDS) as TurretKind[]) {
+      const ghost = buildTurretModel(kind).group;
+      ghost.traverse((o) => {
+        if (o instanceof THREE.Mesh) o.material = this.ghostMat;
+      });
+      const r = TURRET_KINDS[kind].radius;
+      const ring = new THREE.Mesh(new THREE.RingGeometry(r, r + 0.07, 32), this.ghostMat);
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.y = 0.02;
+      ghost.add(ring);
+      ghost.visible = false;
+      game.scene.add(ghost);
+      this.ghosts[kind] = ghost;
+    }
 
     this.alertTip = document.createElement('div');
     this.alertTip.className = 'ta-tip';
@@ -192,14 +246,18 @@ export class Turrets {
     this.alertEl.appendChild(this.alertTip);
   }
 
-  /** 当前每台机枪的弹匣容量 */
-  get maxAmmo() {
-    return TURRET.ammo * 2 ** this.upgrades.mag;
+  /** 这种机枪当前的弹匣容量（算上升级） */
+  maxAmmo(kind: TurretKind) {
+    return TURRET_KINDS[kind].ammo * 2 ** this.upgrades.mag;
   }
 
-  /** 当前每发伤害 */
-  get damage() {
-    return TURRET.damage * 2 ** this.upgrades.damage;
+  /** 这种机枪当前的每发伤害（算上升级） */
+  damageOf(kind: TurretKind) {
+    return TURRET_KINDS[kind].damage * 2 ** this.upgrades.damage;
+  }
+
+  private showGhost(kind: TurretKind | null) {
+    for (const k of Object.keys(this.ghosts) as TurretKind[]) this.ghosts[k].visible = k === kind;
   }
 
   /** 买下一级升级。弹匣扩容只提高容量，不给已部署的机枪补子弹 */
@@ -213,9 +271,9 @@ export class Turrets {
   }
 
   /** 买下新机枪：进入搬运模式，由玩家自己挑位置放 */
-  startCarryNew() {
-    this.carry = { turret: null, spot: new THREE.Vector3(), yaw: 0, valid: false };
-    this.ghost.visible = true;
+  startCarryNew(kind: TurretKind) {
+    this.carry = { turret: null, kind, spot: new THREE.Vector3(), yaw: 0, valid: false };
+    this.showGhost(kind);
   }
 
   /** 按住 F 把已放下的机枪搬起来 */
@@ -224,8 +282,8 @@ export class Turrets {
     t.carried = true;
     t.group.visible = false;
     t.target = null;
-    this.carry = { turret: t, spot: new THREE.Vector3(), yaw: t.yaw, valid: false };
-    this.ghost.visible = true;
+    this.carry = { turret: t, kind: t.kind, spot: new THREE.Vector3(), yaw: t.yaw, valid: false };
+    this.showGhost(t.kind);
     this.game.audio.reload(0, t.pos);
   }
 
@@ -239,12 +297,14 @@ export class Turrets {
     const z = p.z - Math.cos(yaw) * TURRET.carryDist;
     c.spot.set(x, 0, z);
     c.yaw = yaw;
+    const r = TURRET_KINDS[c.kind].radius;
     c.valid =
-      !g.level.circleBlocked(x, z, TURRET.radius + 0.05) &&
+      !g.level.circleBlocked(x, z, r + 0.05) &&
       g.level.segmentClear(p.x, p.z, x, z, 0.05) &&
-      !this.list.some((t) => !t.carried && Math.hypot(t.pos.x - x, t.pos.z - z) < TURRET.radius * 2 + 0.15);
-    this.ghost.position.copy(c.spot);
-    this.ghost.rotation.y = yaw;
+      !this.list.some((t) => !t.carried && Math.hypot(t.pos.x - x, t.pos.z - z) < r + TURRET_KINDS[t.kind].radius + 0.15);
+    const ghost = this.ghosts[c.kind];
+    ghost.position.copy(c.spot);
+    ghost.rotation.y = yaw;
     this.ghostMat.color.set(c.valid ? 0x6ee06a : 0xff4a3a);
     this.ghostMat.opacity = 0.32 + Math.sin(g.time * 6) * 0.08;
 
@@ -273,10 +333,10 @@ export class Turrets {
       t.carried = false;
       t.group.visible = true;
     } else {
-      this.list.push(this.build(c.spot.clone(), c.yaw));
+      this.list.push(this.build(c.spot.clone(), c.yaw, c.kind));
     }
     this.carry = null;
-    this.ghost.visible = false;
+    this.showGhost(null);
     g.audio.hammer(new THREE.Vector3(c.spot.x, 0.8, c.spot.z));
   }
 
@@ -288,27 +348,28 @@ export class Turrets {
       c.turret.carried = false;
       c.turret.group.visible = true;
     } else {
-      this.game.refund(TURRET.cost);
+      this.game.refund(TURRET_KINDS[c.kind].cost);
     }
     this.carry = null;
-    this.ghost.visible = false;
+    this.showGhost(null);
   }
 
   carryPrompt() {
     const c = this.carry;
     if (!c) return null;
     const cancel = c.turret ? '右键取消' : '右键取消（退还积分）';
-    return c.valid ? `左键或 F 放下自动机枪 · ${cancel}` : `这里放不下 · ${cancel}`;
+    return c.valid ? `左键或 F 放下${TURRET_KINDS[c.kind].name} · ${cancel}` : `这里放不下 · ${cancel}`;
   }
 
-  private build(pos: THREE.Vector3, yaw: number): Turret {
+  private build(pos: THREE.Vector3, yaw: number, kind: TurretKind): Turret {
     const g = this.game;
-    const { group, head, muzzle, lamp } = buildTurretModel();
+    const K = TURRET_KINDS[kind];
+    const { group, head, muzzle, lamp } = buildTurretModel(kind);
     group.position.copy(pos);
     const flash = new THREE.Sprite(
       new THREE.SpriteMaterial({ map: this.flashTex, color: 0xffd090, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }),
     );
-    flash.scale.setScalar(0.4);
+    flash.scale.setScalar(kind === 'heavy' ? 0.6 : 0.4);
     flash.visible = false;
     muzzle.add(flash);
 
@@ -328,10 +389,11 @@ export class Turrets {
 
     const t: Turret = {
       id: this.nextId++,
+      kind,
       pos: pos.clone(),
       group, head, muzzle,
       yaw, pitch: 0,
-      ammo: this.maxAmmo,
+      ammo: this.maxAmmo(kind),
       cooldown: 0,
       reloadT: -1,
       target: null,
@@ -345,9 +407,9 @@ export class Turrets {
       pos: new THREE.Vector3(pos.x, 1, pos.z),
       range: 1.6,
       prompt: () => {
-        if (t.reloadT >= 0) return '自动机枪上弹中…';
-        if (t.ammo <= 0) return '按 F 上弹 · 按住 F 搬走';
-        return `自动机枪 · 弹药 ${t.ammo}/${this.maxAmmo} · 按住 F 搬走`;
+        if (t.reloadT >= 0) return `${K.name}上弹中…`;
+        if (t.ammo <= 0) return `${K.name} · 按 F 上弹 · 按住 F 搬走`;
+        return `${K.name} · 弹药 ${t.ammo}/${this.maxAmmo(kind)} · 按住 F 搬走`;
       },
       use: () => this.reload(t),
       holdAction: {
@@ -362,7 +424,7 @@ export class Turrets {
 
   private reload(t: Turret) {
     if (t.ammo > 0 || t.reloadT >= 0) return;
-    t.reloadT = TURRET.reload;
+    t.reloadT = TURRET_KINDS[t.kind].reload;
     this.game.audio.reload(0, t.pos);
   }
 
@@ -371,7 +433,7 @@ export class Turrets {
     for (const t of this.list) {
       if (t.carried) continue;
       const dx = p.x - t.pos.x, dz = p.z - t.pos.z;
-      const min = r + TURRET.radius;
+      const min = r + TURRET_KINDS[t.kind].radius;
       const d2 = dx * dx + dz * dz;
       if (d2 >= min * min) continue;
       const d = Math.sqrt(d2);
@@ -389,7 +451,7 @@ export class Turrets {
     const g = this.game;
     const from = new THREE.Vector3(t.pos.x, MUZZLE_Y, t.pos.z);
     let best: Zombie | null = null;
-    let bestD = TURRET.range;
+    let bestD = TURRET_KINDS[t.kind].range;
     for (const z of g.zombies.list) {
       if (z.dead || z.pos.y < -0.6) continue;
       const to = new THREE.Vector3(z.pos.x, z.pos.y + 1.25, z.pos.z);
@@ -405,8 +467,9 @@ export class Turrets {
 
   private fire(t: Turret) {
     const g = this.game;
+    const K = TURRET_KINDS[t.kind];
     t.ammo--;
-    t.cooldown = TURRET.interval;
+    t.cooldown = K.interval;
     const origin = t.muzzle.getWorldPosition(new THREE.Vector3());
     const z = t.target!;
     const aim = new THREE.Vector3(z.pos.x, z.pos.y + 1.25, z.pos.z);
@@ -415,25 +478,34 @@ export class Turrets {
     dir.y += rand(-0.02, 0.02);
     dir.z += rand(-0.02, 0.02);
     dir.normalize();
-    const maxD = TURRET.range + 5;
+    const maxD = K.range + 5;
     const wall = g.level.raycast(origin, dir, maxD, this.rayHit);
     const wallT = wall ? this.rayHit.t : maxD;
     this.raycaster.set(origin, dir);
     this.raycaster.far = wallT;
     let endT = wallT;
-    let hitZombie = false;
+    let stopped = false;
+    // 重型机枪能穿透：打穿第一只再打后面一只，每穿一只伤害 ×0.7
+    let pen = K.pierce;
+    let mult = 1;
+    const seen = new Set<Zombie>();
     for (const h of this.raycaster.intersectObjects(g.zombies.targets(), false)) {
       const hz = h.object.userData.zombie as Zombie | undefined;
-      if (!hz || hz.dead) continue;
+      if (!hz || hz.dead || seen.has(hz)) continue;
+      seen.add(hz);
       const part = h.object.userData.part as HitPart;
-      const dmg = this.damage * (part === 'head' ? 2 : part === 'limb' ? 0.8 : 1);
+      const dmg = this.damageOf(t.kind) * mult * (part === 'head' ? 2 : part === 'limb' ? 0.8 : 1);
       g.zombies.damage(hz, dmg, part, 'turret', dir, { point: h.point });
       g.particles.blood(h.point, dir.clone().negate(), 6, 0.9);
       endT = h.distance;
-      hitZombie = true;
-      break;
+      if (pen-- <= 0) {
+        stopped = true;
+        break;
+      }
+      mult *= 0.7;
     }
-    if (!hitZombie && wall) {
+    if (!stopped) endT = wallT;
+    if (!stopped && wall) {
       const p = origin.clone().addScaledVector(dir, wallT);
       const n = new THREE.Vector3(this.rayHit.nx, this.rayHit.ny, this.rayHit.nz);
       g.particles.impact(p, n, true);
@@ -449,7 +521,7 @@ export class Turrets {
     tr.mesh.scale.set(1, 1, Math.max(0.1, endT));
     t.flashT = 0.04;
     t.flash.material.rotation = Math.random() * Math.PI;
-    g.audio.shot(this.sound, origin);
+    g.audio.shot(t.kind === 'heavy' ? this.heavySound : this.sound, origin);
     if (t.ammo === 0) g.audio.dryFire();
   }
 
@@ -469,7 +541,7 @@ export class Turrets {
       if (t.reloadT >= 0) {
         t.reloadT -= dt;
         if (t.reloadT < 0) {
-          t.ammo = this.maxAmmo;
+          t.ammo = this.maxAmmo(t.kind);
           g.audio.reload(1, t.pos);
         }
       }
@@ -502,11 +574,11 @@ export class Turrets {
       t.flash.visible = t.flashT > 0;
 
       // 弹药条与状态灯：空了就闪红
-      const frac = Math.min(1, t.ammo / this.maxAmmo);
+      const frac = Math.min(1, t.ammo / this.maxAmmo(t.kind));
       const empty = t.ammo <= 0 && t.reloadT < 0;
       const blink = Math.floor(g.time * 4) % 2 === 0;
       if (t.reloadT >= 0) {
-        const r = 1 - t.reloadT / TURRET.reload;
+        const r = 1 - t.reloadT / TURRET_KINDS[t.kind].reload;
         t.barFill.scale.x = 0.6 * r;
         t.barFill.material.color.set(0x7fc8ff);
         t.lamp.color.set(0x7fc8ff);
@@ -547,7 +619,8 @@ export class Turrets {
       const dx = t.pos.x - p.x, dz = t.pos.z - p.z;
       const reloading = t.reloadT >= 0;
       if (!reloading) needF = true;
-      const text = reloading ? `自动机枪 #${i + 1} 上弹中` : `自动机枪 #${i + 1} 没子弹 · ${Math.round(Math.hypot(dx, dz))} 米`;
+      const name = TURRET_KINDS[t.kind].name;
+      const text = reloading ? `${name} #${i + 1} 上弹中` : `${name} #${i + 1} 没子弹 · ${Math.round(Math.hypot(dx, dz))} 米`;
       if (text !== row.text) {
         row.text = text;
         row.txt.textContent = text;
