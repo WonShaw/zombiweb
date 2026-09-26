@@ -43,6 +43,8 @@ export class Zombie {
   private deathVel = new THREE.Vector3();
   private progressT = 0;
   private bestDist = Infinity;
+  /** 在远离玩家的区域窗外待了多久：太久就换到玩家附近的窗户 */
+  private farT = 0;
   private climbFrom = new THREE.Vector3();
   private pitch = rand(0.85, 1.2);
   private moved = 0;
@@ -150,6 +152,15 @@ export class Zombie {
     let mode: 'move' | 'idle' | 'attack' | 'tear' | 'climb' | 'rise' = 'idle';
     let animT = this.st;
     const before = this.pos.clone();
+
+    // 还在窗外、而玩家已经跑到别的区域：过几秒换到玩家附近的窗户重新爬出来
+    if ((this.state === 'approach' || this.state === 'tearing') && !g.zombies.nearZones.has(this.win.zone) && pDist > 12) {
+      this.farT += dt;
+      if (this.farT > 5) {
+        this.farT = 0;
+        this.respawn();
+      }
+    } else this.farT = 0;
 
     switch (this.state) {
       case 'rising': {
@@ -389,6 +400,8 @@ export class ZombieManager {
   private dirty = true;
   private killsSinceDrop = 0;
   private dropsThisRound = 0;
+  /** 玩家附近（本区域 + 开门直连）的区域，每帧刷新 */
+  nearZones = new Set<number>();
 
   constructor(private game: Game) {}
 
@@ -417,10 +430,14 @@ export class ZombieManager {
     const lvl = this.game.level;
     const p = this.game.player.pos;
     const pz = this.game.player.zone;
+    const near = lvl.spawnZones(pz);
+    this.nearZones = near;
+    // 附近区域一扇窗都没有时（比如站在没有窗的饮料房门口）退回到所有已开放区域
+    const useNear = lvl.windows.some((w) => near.has(w.zone));
     const cands: [WindowRT, number][] = [];
     let total = 0;
     for (const w of lvl.windows) {
-      if (!lvl.zoneActive[w.zone]) continue;
+      if (!lvl.zoneActive[w.zone] || (useNear && !near.has(w.zone))) continue;
       const d = Math.hypot(w.inside.x - p.x, w.inside.z - p.z);
       const wt = 1 / (1 + (d / 9) ** 2) + (w.zone === pz ? 0.5 : 0);
       cands.push([w, wt]);
@@ -510,6 +527,7 @@ export class ZombieManager {
 
   update(dt: number) {
     const g = this.game;
+    this.nearZones = g.level.spawnZones(g.player.zone);
     if (this.toSpawn > 0) {
       this.spawnT -= dt;
       if (this.spawnT <= 0 && this.alive < this.maxAlive) {

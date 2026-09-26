@@ -20,6 +20,20 @@ export const TURRET = {
   pickupHold: 0.8, // 按住 F 多久搬起
 };
 
+/** 自动机枪升级：对所有机枪（包括以后买的）生效 */
+export const TURRET_UPGRADES = {
+  name: '弹匣扩容',
+  icon: '⛓',
+  base: `每台机枪一次装 ${TURRET.ammo} 发。`,
+  levels: [
+    {
+      cost: 3000,
+      name: '双倍弹匣',
+      desc: `所有自动机枪的弹匣容量翻倍，一次装 ${TURRET.ammo * 2} 发。已部署的机枪不会自动补满，打空后上弹时装满。`,
+    },
+  ],
+};
+
 interface Turret {
   id: number;
   pos: THREE.Vector3;
@@ -116,7 +130,13 @@ export class Turrets {
   private barTex: THREE.Texture;
   private sound = { freq: 2300, decay: 0.22, thump: 120, vol: 0.5 };
   carry: Carry | null = null;
+  /** 弹匣扩容升级的等级 */
+  magLevel = 0;
   private ghost: THREE.Group;
+  /** 左上角的“机枪没子弹”提示，每台一行 */
+  private alertEl = document.getElementById('turret-alert')!;
+  private alertTip: HTMLDivElement;
+  private alertRows = new Map<number, { el: HTMLDivElement; arr: HTMLElement; txt: HTMLElement; text: string }>();
   private ghostMat = new THREE.MeshBasicMaterial({ color: 0x6ee06a, transparent: true, opacity: 0.4, depthWrite: false });
 
   constructor(private game: Game) {
@@ -149,6 +169,21 @@ export class Turrets {
     this.ghost.add(ring);
     this.ghost.visible = false;
     game.scene.add(this.ghost);
+
+    this.alertTip = document.createElement('div');
+    this.alertTip.className = 'ta-tip';
+    this.alertTip.textContent = '走到机枪旁按 F 上弹';
+    this.alertEl.appendChild(this.alertTip);
+  }
+
+  /** 当前每台机枪的弹匣容量 */
+  get maxAmmo() {
+    return TURRET.ammo * 2 ** this.magLevel;
+  }
+
+  /** 买下一级升级：只提高容量，不给已部署的机枪补子弹 */
+  upgradeMag() {
+    this.magLevel++;
   }
 
   /** 已放下的 + 正在搬运的新机枪 */
@@ -275,7 +310,7 @@ export class Turrets {
       pos: pos.clone(),
       group, head, muzzle,
       yaw, pitch: 0,
-      ammo: TURRET.ammo,
+      ammo: this.maxAmmo,
       cooldown: 0,
       reloadT: -1,
       target: null,
@@ -291,7 +326,7 @@ export class Turrets {
       prompt: () => {
         if (t.reloadT >= 0) return '自动机枪上弹中…';
         if (t.ammo <= 0) return '按 F 上弹 · 按住 F 搬走';
-        return `自动机枪 · 弹药 ${t.ammo}/${TURRET.ammo} · 按住 F 搬走`;
+        return `自动机枪 · 弹药 ${t.ammo}/${this.maxAmmo} · 按住 F 搬走`;
       },
       use: () => this.reload(t),
       holdAction: {
@@ -394,10 +429,7 @@ export class Turrets {
     t.flashT = 0.04;
     t.flash.material.rotation = Math.random() * Math.PI;
     g.audio.shot(this.sound, origin);
-    if (t.ammo === 0) {
-      g.audio.dryFire();
-      g.hud.announce('自动机枪没子弹了', '走过去按 F 上弹');
-    }
+    if (t.ammo === 0) g.audio.dryFire();
   }
 
   /** 可交互（没被搬起来）的机枪 */
@@ -414,7 +446,7 @@ export class Turrets {
       if (t.reloadT >= 0) {
         t.reloadT -= dt;
         if (t.reloadT < 0) {
-          t.ammo = TURRET.ammo;
+          t.ammo = this.maxAmmo;
           g.audio.reload(1, t.pos);
         }
       }
@@ -447,7 +479,7 @@ export class Turrets {
       t.flash.visible = t.flashT > 0;
 
       // 弹药条与状态灯：空了就闪红
-      const frac = t.ammo / TURRET.ammo;
+      const frac = Math.min(1, t.ammo / this.maxAmmo);
       const empty = t.ammo <= 0 && t.reloadT < 0;
       const blink = Math.floor(g.time * 4) % 2 === 0;
       if (t.reloadT >= 0) {
@@ -468,5 +500,44 @@ export class Turrets {
       tr.t -= dt;
       if (tr.t <= 0) tr.mesh.visible = false;
     }
+    this.updateAlert();
+  }
+
+  /** 左上角列出没子弹 / 正在上弹的机枪，带距离和指向箭头 */
+  private updateAlert() {
+    const g = this.game;
+    const p = g.player.pos;
+    const seen = new Set<number>();
+    let needF = false;
+    this.list.forEach((t, i) => {
+      if (t.carried || (t.ammo > 0 && t.reloadT < 0)) return;
+      seen.add(t.id);
+      let row = this.alertRows.get(t.id);
+      if (!row) {
+        const el = document.createElement('div');
+        el.className = 'ta';
+        el.innerHTML = '<i class="arr">▲</i><span></span>';
+        this.alertEl.insertBefore(el, this.alertTip);
+        row = { el, arr: el.firstElementChild as HTMLElement, txt: el.lastElementChild as HTMLElement, text: '' };
+        this.alertRows.set(t.id, row);
+      }
+      const dx = t.pos.x - p.x, dz = t.pos.z - p.z;
+      const reloading = t.reloadT >= 0;
+      if (!reloading) needF = true;
+      const text = reloading ? `自动机枪 #${i + 1} 上弹中` : `自动机枪 #${i + 1} 没子弹 · ${Math.round(Math.hypot(dx, dz))} 米`;
+      if (text !== row.text) {
+        row.text = text;
+        row.txt.textContent = text;
+        row.el.classList.toggle('rl', reloading);
+      }
+      const rel = angleDiff(g.player.yaw, Math.atan2(-dx, -dz));
+      row.arr.style.transform = `rotate(${Math.round((-rel * 180) / Math.PI)}deg)`;
+    });
+    for (const [id, row] of this.alertRows) {
+      if (seen.has(id)) continue;
+      row.el.remove();
+      this.alertRows.delete(id);
+    }
+    this.alertTip.style.display = needF ? '' : 'none';
   }
 }

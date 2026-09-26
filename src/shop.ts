@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { Game } from './game';
 import { WEAPONS, CLASS_NAMES, UPGRADES, type WeaponDef, type WeaponClass, type UpgradeId } from './weapons/defs';
 import { buildGun } from './weapons/models';
-import { TURRET, buildTurretModel } from './world/turrets';
+import { TURRET, TURRET_UPGRADES, buildTurretModel } from './world/turrets';
 import { clamp } from './core/util';
 
 const $ = (id: string) => document.getElementById(id)!;
@@ -86,6 +86,13 @@ export class Shop {
       this.render();
     });
     $('shop-turret').addEventListener('click', (e) => {
+      const up = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-tupg]');
+      if (up) {
+        if (!up.disabled) this.game.buyTurretUpgrade();
+        this.turretMsg = null;
+        this.render();
+        return;
+      }
       const b = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-turret]');
       if (!b || b.disabled) return;
       const err = this.game.buyTurret();
@@ -179,6 +186,7 @@ export class Shop {
     const g = this.game;
     const list = g.turrets.list;
     const carry = g.turrets.carry;
+    const max = g.turrets.maxAmmo;
     const count = g.turrets.count;
     const poor = g.points < TURRET.cost;
     const label = carry ? '先放下手上的机枪' : poor ? `${TURRET.cost} 积分` : `购买 · ${TURRET.cost}`;
@@ -193,9 +201,9 @@ export class Shop {
                 ? '上弹中'
                 : t.ammo <= 0
                   ? '没子弹了，需要上弹'
-                  : `弹药 ${t.ammo} / ${TURRET.ammo}`;
+                  : `弹药 ${t.ammo} / ${max}`;
             const cls = t.ammo <= 0 && t.reloadT < 0 ? ' empty' : '';
-            const frac = t.reloadT >= 0 ? 1 - t.reloadT / TURRET.reload : t.ammo / TURRET.ammo;
+            const frac = t.reloadT >= 0 ? 1 - t.reloadT / TURRET.reload : Math.min(1, t.ammo / max);
             return `<div class="dep${cls}"><b>#${i + 1}</b><span>${status}</span><i><s style="width:${Math.round(frac * 100)}%"></s></i><em>距你 ${d} 米</em></div>`;
           })
           .join('')
@@ -204,20 +212,43 @@ export class Shop {
     const deployedHtml = list.length || pending ? deployed + pending : '<div class="dep none">还没有部署自动机枪。</div>';
     const msg = this.turretMsg ? `<div class="msg ${this.turretMsg.ok ? 'ok' : 'err'}">${this.turretMsg.text}</div>` : '';
     $('shop-turret').innerHTML = `
+      <div class="turret-col">
       <div class="card turret${poor ? ' poor' : ''}">
         <div class="thumb"><img src="${this.thumbs.get('turret') ?? ''}" alt="" /></div>
         <div class="row"><b>自动机枪</b><span class="cls">部署装备</span></div>
         <div class="desc">买下后回到游戏，面前会出现虚影，选好位置按左键或 <kbd>F</kbd> 放下（右键取消并退款）。
-          自动扫射 ${TURRET.range} 米内看得见的丧尸，一次装 ${TURRET.ammo} 发，打空后走过去短按 <kbd>F</kbd> 上弹；
+          自动扫射 ${TURRET.range} 米内看得见的丧尸，一次装 ${max} 发，打空后走过去短按 <kbd>F</kbd> 上弹；
           按住 <kbd>F</kbd> 可以搬到别处。机枪击杀 +50 分，打中不加分。</div>
         <div class="tags"><em>${Math.round(60 / TURRET.interval)} 发/分</em><em>每发 ${TURRET.damage} 伤害</em><em>射程 ${TURRET.range} 米</em><em>上弹 ${TURRET.reload} 秒</em><em>数量不限</em></div>
         <button class="buy" data-turret ${carry || poor ? 'disabled' : ''}>${label}</button>
         ${msg}
       </div>
+      ${this.turretUpgradeCard()}
+      </div>
       <div class="deployed">
         <h3>已部署 <small>${count} 台</small></h3>
         ${deployedHtml}
       </div>`;
+  }
+
+  private turretUpgradeCard() {
+    const u = TURRET_UPGRADES;
+    const cur = this.game.turrets.magLevel;
+    const next = u.levels[cur];
+    return this.upgradeCard(u, cur, next ? `<button class="buy" data-tupg ${this.game.points < next.cost ? 'disabled' : ''}>升级 · ${next.cost}</button>` : '');
+  }
+
+  private upgradeCard(u: { name: string; icon: string; base: string; levels: { cost: number; name: string; desc: string }[] }, cur: number, buyBtn: string) {
+    const next = u.levels[cur];
+    const pips = u.levels.map((_, i) => `<i class="${i < cur ? 'on' : ''}"></i>`).join('');
+    const curText = cur === 0 ? u.base : `${u.levels[cur - 1].name}：${u.levels[cur - 1].desc}`;
+    const btn = next ? buyBtn : `<button class="buy" disabled>已满级</button>`;
+    return `<div class="upg${next ? '' : ' maxed'}">
+      <div class="upg-head"><span class="ico">${u.icon}</span><b>${u.name}</b><span class="pips">${pips}</span></div>
+      <div class="upg-cur"><span>当前</span>${curText}</div>
+      <div class="upg-next">${next ? `<span>下一级 · ${next.name}</span>${next.desc}` : '<span>已满级</span>这条线已经升满了。'}</div>
+      ${btn}
+    </div>`;
   }
 
   private renderUpgrades() {
@@ -226,19 +257,9 @@ export class Shop {
     $('shop-upgrades').innerHTML = (Object.keys(UPGRADES) as UpgradeId[])
       .map((id) => {
         const u = UPGRADES[id];
-        const cur = lv[id];
-        const next = u.levels[cur];
-        const pips = u.levels.map((_, i) => `<i class="${i < cur ? 'on' : ''}"></i>`).join('');
-        const curText = cur === 0 ? u.base : `${u.levels[cur - 1].name}：${u.levels[cur - 1].desc}`;
-        const btn = next
-          ? `<button class="buy" data-upg="${id}" ${g.points < next.cost ? 'disabled' : ''}>升级 · ${next.cost}</button>`
-          : `<button class="buy" disabled>已满级</button>`;
-        return `<div class="upg${next ? '' : ' maxed'}">
-          <div class="upg-head"><span class="ico">${u.icon}</span><b>${u.name}</b><span class="pips">${pips}</span></div>
-          <div class="upg-cur"><span>当前</span>${curText}</div>
-          <div class="upg-next">${next ? `<span>下一级 · ${next.name}</span>${next.desc}` : '<span>已满级</span>这条线已经升满了。'}</div>
-          ${btn}
-        </div>`;
+        const next = u.levels[lv[id]];
+        const btn = next ? `<button class="buy" data-upg="${id}" ${g.points < next.cost ? 'disabled' : ''}>升级 · ${next.cost}</button>` : '';
+        return this.upgradeCard(u, lv[id], btn);
       })
       .join('');
   }

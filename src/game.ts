@@ -9,7 +9,7 @@ import { WeaponSystem } from './weapons/weaponSystem';
 import { Projectiles } from './weapons/projectiles';
 import { Interactables } from './world/interactables';
 import { Powerups } from './world/powerups';
-import { Turrets, TURRET } from './world/turrets';
+import { Turrets, TURRET, TURRET_UPGRADES } from './world/turrets';
 import { Particles } from './fx/particles';
 import { Decals } from './fx/decals';
 import { Lightning } from './fx/lightning';
@@ -204,6 +204,11 @@ export class Game {
     if (!this.spend(TURRET.cost)) return '积分不够';
     this.turrets.startCarryNew();
     return null;
+  }
+
+  buyTurretUpgrade() {
+    const next = TURRET_UPGRADES.levels[this.turrets.magLevel];
+    if (next && this.spend(next.cost)) this.turrets.upgradeMag();
   }
 
   /** 退还积分（不受双倍积分影响，也不计入累计积分） */

@@ -535,6 +535,54 @@ kbd {
   text-shadow: 0 1px 2px #000;
 }
 
+/* 左上角：没子弹的自动机枪 */
+#turret-alert {
+  position: absolute;
+  left: 34px;
+  top: 50px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  font-size: 13px;
+  text-shadow: 0 1px 2px #000;
+  pointer-events: none;
+}
+#turret-alert .ta {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 9px 3px 6px;
+  color: #ffb0a4;
+  background: rgba(70, 6, 4, 0.45);
+  border-left: 2px solid #ff4a3a;
+  border-radius: 2px;
+  animation: ta-in 0.45s ease-out 2;
+}
+#turret-alert .ta.rl {
+  color: #a8d8ff;
+  background: rgba(4, 24, 44, 0.45);
+  border-left-color: #7fc8ff;
+  animation: none;
+}
+#turret-alert .arr {
+  display: inline-block;
+  width: 11px;
+  font-size: 9px;
+  font-style: normal;
+  text-align: center;
+}
+#turret-alert .ta-tip {
+  font-size: 11.5px;
+  color: rgba(236, 230, 216, 0.55);
+  padding-left: 8px;
+}
+@keyframes ta-in {
+  0% {
+    background: rgba(255, 60, 40, 0.7);
+  }
+}
+
 /* ---------------- 商店 ---------------- */
 
 #shop {
@@ -865,6 +913,11 @@ kbd {
   .turret-panel {
     grid-template-columns: 1fr;
   }
+}
+.turret-col {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
 }
 .card.turret .thumb {
   height: 150px;

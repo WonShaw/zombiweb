@@ -58,8 +58,10 @@ export interface WindowRT {
   charge: number;
   repairT: number;
   sparkT: number;
-  /** 第 4 档的铁丝网（未升级时为 null） */
+  /** 带铁丝网那档的铁丝网（未升级时为 null） */
   wire: THREE.Group | null;
+  /** 升级材质时有丧尸正翻窗，等它翻进来再补满 */
+  pendingRepair: boolean;
   group: THREE.Group;
   inside: THREE.Vector3;
   outside: THREE.Vector3;
@@ -494,6 +496,13 @@ export class Level {
     });
   }
 
+  /** 玩家所在区域 + 通过已打开的门直接相连的区域：丧尸只从这些区域的窗户出来 */
+  spawnZones(zone: number) {
+    const set = new Set<number>([zone]);
+    for (const d of this.doors) if (d.open && d.zones.includes(zone)) for (const z of d.zones) set.add(z);
+    return set;
+  }
+
   openDoor(d: DoorRT) {
     if (d.open) return;
     d.open = true;
@@ -556,6 +565,7 @@ export class Level {
         repairT: 0,
         sparkT: Math.random(),
         wire: null,
+        pendingRepair: false,
         group, inside, outside, center, occupant: null,
       });
     });
@@ -649,28 +659,32 @@ export class Level {
 
   /** 木匠道具：所有窗户瞬间修满 */
   repairAll() {
-    for (const w of this.windows) {
-      if (w.occupant) continue;
-      while (this.repairBoard(w, true));
-    }
+    for (const w of this.windows) if (!w.occupant) this.refillWindow(w);
+  }
+
+  /** 把一扇窗的板子一次补满（缺的板飞回来，受损的回满耐久） */
+  private refillWindow(w: WindowRT) {
+    w.pendingRepair = false;
+    while (this.repairBoard(w, true));
   }
 
   setUpgrade(id: UpgradeId, level: number) {
     this.upgrades[id] = level;
     if (id === 'armor') {
-      const max = this.boardMaxHp;
       const mat = this.boardMats[Math.min(level, this.boardMats.length - 1)];
       const sc = BOARD_SCALE[Math.min(level, BOARD_SCALE.length - 1)];
       for (const w of this.windows) {
         for (let i = 0; i < BOARDS; i++) {
           w.boards[i].material = mat;
           w.boards[i].scale.set(...sc);
-          if (w.present[i]) w.hp[i] = max;
         }
         if (level >= WIRE_TIER && !w.wire) {
           w.wire = this.buildWire();
           w.group.add(w.wire);
         }
+        // 换材质的同时把所有窗户按新材质补满
+        if (w.occupant) w.pendingRepair = true;
+        else this.refillWindow(w);
       }
     }
     if (id === 'shock') for (const w of this.windows) w.charge = 1;
@@ -983,6 +997,7 @@ export class Level {
 
   private updateWindowUpgrades(w: WindowRT, dt: number) {
     const u = this.upgrades;
+    if (w.pendingRepair && !w.occupant) this.refillWindow(w);
     if (w.wire) w.wire.visible = u.armor >= WIRE_TIER && this.boardCount(w) > 0;
     if (u.shock > 0) {
       const period = u.shock >= 2 ? 4 : 8;
