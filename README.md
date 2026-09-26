@@ -2,7 +2,7 @@
 
 仿《使命召唤》丧尸模式的第一人称生存游戏，用 Three.js + TypeScript + Vite 编写，在浏览器里运行（Mac 上 Safari / Chrome 均可）。
 
-所有模型、贴图、音效都是运行时程序化生成的，没有外部素材文件。
+所有模型、贴图、音效都是运行时程序化生成的；唯一的外部素材是爆头音效 `src/assets/sounds/kl.mp3`（加载失败时自动换成合成的爆裂声）。
 
 ## 运行
 
@@ -146,6 +146,7 @@ src/
   hud.ts               界面（DOM）
   shop.ts              商店页面（武器、自动机枪、路障升级、离屏渲染的缩略图）
   core/                输入、Web Audio 合成音效、程序化贴图（labTextures.ts 是研究中心用的）
+  assets/sounds/       爆头音效 kl.mp3
   world/map.ts         地图数据结构、地图列表、废弃庄园的布局
   world/labMap.ts      城市研究中心的两层布局（楼梯、挑空、玻璃墙、家具、门、窗）
   world/level.ts       关卡核心：最多两层的格子地图、楼梯斜坡、按高度的碰撞、子弹射线、按楼层的寻路流场

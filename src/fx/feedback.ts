@@ -55,7 +55,6 @@ export class Feedback {
   private lastHitSound = 0;
   private frameKills = 0;
   private frameHead = false;
-  private announced = 0;
   private tmp = new THREE.Vector3();
 
   constructor(private game: Game) {
@@ -88,7 +87,6 @@ export class Feedback {
 
   private onKill(kind: KillKind) {
     this.streak = this.sinceKill < STREAK_WINDOW ? this.streak + 1 : 1;
-    if (this.streak === 1) this.announced = 1;
     this.sinceKill = 0;
     this.frameKills++;
     if (kind === 'head') this.frameHead = true;
@@ -167,10 +165,6 @@ export class Feedback {
     // 本帧的击杀音效只播一次，避免一发火箭炸死五只时声音叠成一团
     if (this.frameKills > 0) {
       g.audio.killConfirm(this.streak, this.frameHead);
-      if (this.streak >= 2 && this.streak > this.announced) {
-        g.audio.multiKill(this.streak);
-        this.announced = this.streak;
-      }
       this.frameKills = 0;
       this.frameHead = false;
     }

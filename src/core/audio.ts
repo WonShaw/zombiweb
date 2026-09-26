@@ -1,5 +1,9 @@
 import * as THREE from 'three';
+import headshotUrl from '../assets/sounds/kl.mp3';
 import { rand } from './util';
+
+/** 爆头音效（音频文件）的音量：原文件本身很响，压到比枪声稍响一点（约 1.7 倍） */
+const HEADSHOT_GAIN = 0.2;
 
 /** 每把枪的枪声合成参数 */
 export interface ShotSound {
@@ -36,6 +40,11 @@ export class Sfx {
   private master!: GainNode;
   private sfx!: GainNode;
   private music!: GainNode;
+  /** 不经过压缩器的通道：爆头音效走这里，才能真的比枪声更响 */
+  private punch!: GainNode;
+  /** 爆头音效（加载好之前 / 加载失败时用合成的爆裂声代替） */
+  private headshotBuf: AudioBuffer | null = null;
+  private headshotNow: { src: AudioBufferSourceNode; g: GainNode } | null = null;
   private noiseBuf!: AudioBuffer;
   private volume = 0.8;
 
@@ -61,6 +70,9 @@ export class Sfx {
     this.music = ctx.createGain();
     this.music.gain.value = 0.8;
     this.music.connect(comp);
+    this.punch = ctx.createGain();
+    this.punch.connect(this.master);
+    this.loadHeadshot();
 
     const len = ctx.sampleRate * 2;
     const buf = ctx.createBuffer(1, len, ctx.sampleRate);
@@ -535,14 +547,63 @@ export class Sfx {
   // ---------- 打击反馈 ----------
 
   /** 命中反馈：身体是闷闷的“噗”，爆头是清脆的金属“叮” */
+  private async loadHeadshot() {
+    try {
+      const res = await fetch(headshotUrl);
+      this.headshotBuf = await this.ctx!.decodeAudioData(await res.arrayBuffer());
+    } catch {
+      /* 加载失败就用合成的爆裂声 */
+    }
+  }
+
+  /** 播放爆头音效；连续爆头时把上一声迅速收掉，免得叠成一团 */
+  private playHeadshot() {
+    const ctx = this.ctx!;
+    const t = this.now;
+    const old = this.headshotNow;
+    if (old) {
+      old.g.gain.cancelScheduledValues(t);
+      old.g.gain.setValueAtTime(old.g.gain.value, t);
+      old.g.gain.linearRampToValueAtTime(0, t + 0.03);
+      old.src.stop(t + 0.04);
+    }
+    const src = ctx.createBufferSource();
+    src.buffer = this.headshotBuf;
+    const g = ctx.createGain();
+    g.gain.value = HEADSHOT_GAIN;
+    src.connect(g);
+    g.connect(this.punch);
+    src.start(t);
+    const now = { src, g };
+    this.headshotNow = now;
+    src.onended = () => {
+      if (this.headshotNow === now) this.headshotNow = null;
+    };
+  }
+
+  /**
+   * 爆头声：头被打爆开的一下——极短的爆破“啪” + 低沉的“嘭” + 碎裂声，
+   * full（击杀）时后面再跟一串细碎的迸溅声，像东西炸开四溅。
+   */
+  private headBurst(t: number, out: AudioNode, vol: number, full: boolean) {
+    this.noise(t, 0.022, out, { type: 'lowpass', f0: 7000, vol: 0.62 * vol, attack: 0.001 });
+    this.tone(t, full ? 0.18 : 0.1, out, { type: 'sine', f0: full ? 190 : 230, f1: 42, vol: (full ? 0.6 : 0.4) * vol, attack: 0.002 });
+    this.noise(t, full ? 0.14 : 0.08, out, { type: 'bandpass', f0: 1300, f1: 450, q: 1, vol: 0.42 * vol, attack: 0.002 });
+    if (!full) return;
+    // 迸溅：十来个随机散开的小碎响
+    for (let k = 0; k < 11; k++) {
+      const dt = 0.02 + Math.random() * 0.2;
+      this.noise(t + dt, 0.012 + Math.random() * 0.018, out, { type: 'bandpass', f0: 1800 + Math.random() * 2600, q: 1.8, vol: (0.18 + Math.random() * 0.14) * vol * (1 - dt * 2.5), attack: 0.001 });
+    }
+    this.noise(t + 0.01, 0.3, out, { type: 'lowpass', f0: 900, f1: 200, vol: 0.12 * vol, attack: 0.01 });
+  }
+
   hitConfirm(head: boolean) {
     if (!this.ctx) return;
     const t = this.now;
     const out = this.out(null, 1);
     if (head) {
-      this.tone(t, 0.12, out, { type: 'triangle', f0: 2400, vol: 0.14 });
-      this.tone(t, 0.09, out, { type: 'sine', f0: 3650, vol: 0.08 });
-      this.noise(t, 0.03, out, { type: 'highpass', f0: 5000, vol: 0.12 });
+      this.headBurst(t, out, 0.75, false);
     } else {
       this.noise(t, 0.05, out, { type: 'bandpass', f0: 1300, q: 1.2, vol: 0.2 });
       this.tone(t, 0.06, out, { type: 'sine', f0: 320, f1: 160, vol: 0.14 });
@@ -554,33 +615,18 @@ export class Sfx {
     if (!this.ctx) return;
     const t = this.now;
     const out = this.out(null, 1);
-    const step = Math.min(streak - 1, 7) * 2;
-    const f = 784 * Math.pow(2, step / 12);
+    // 爆头击杀：播放爆头音效文件（还没加载好就用合成的爆裂声），走不压缩的通道所以更响；
+    // 普通击杀只有一下闷响，不要“叮”的奖励铃声
+    if (head) {
+      if (this.headshotBuf) this.playHeadshot();
+      else this.headBurst(t, this.out(null, 1, this.punch), 0.9, true);
+      return;
+    }
     this.tone(t, 0.2, out, { type: 'sine', f0: 170, f1: 55, vol: 0.55 });
     this.noise(t, 0.08, out, { type: 'lowpass', f0: 1800, vol: 0.25 });
-    this.tone(t + 0.015, 0.55, out, { type: 'sine', f0: f, vol: 0.22 });
-    this.tone(t + 0.015, 0.35, out, { type: 'sine', f0: f * 2.76, vol: 0.06 });
-    this.tone(t + 0.015, 0.4, out, { type: 'triangle', f0: f * 1.5, vol: 0.07 });
-    if (head) {
-      this.noise(t, 0.05, out, { type: 'highpass', f0: 4000, vol: 0.35 });
-      this.tone(t + 0.06, 0.45, out, { type: 'sine', f0: f * 2, vol: 0.12 });
-    }
   }
 
-  /** 连杀达成：随连杀数升高的和弦 + 下潜重低音 */
-  multiKill(n: number) {
-    if (!this.ctx) return;
-    const t = this.now + 0.08;
-    const out = this.out(null, 1, this.music);
-    const root = 262 * Math.pow(2, (Math.min(n, 9) - 2) / 12 * 2);
-    const notes = [1, 1.26, 1.5, 2].slice(0, Math.min(4, n));
-    notes.forEach((r, i) => {
-      this.tone(t + i * 0.055, 0.7, out, { type: 'sawtooth', f0: root * r, vol: 0.05 });
-      this.tone(t + i * 0.055, 0.8, out, { type: 'triangle', f0: root * r * 2, vol: 0.07 });
-    });
-    this.tone(t, 0.6, out, { type: 'sine', f0: 110, f1: 40, vol: 0.45 });
-    this.noise(t, 0.35, out, { type: 'bandpass', f0: 600, f1: 3000, q: 0.8, vol: 0.12, attack: 0.05 });
-  }
+
 
   /** 风声 + 低频嗡鸣的环境音 */
   private startAmbient() {
