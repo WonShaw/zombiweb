@@ -282,7 +282,7 @@ export const UPGRADES: Record<UpgradeId, { name: string; icon: string; levels: {
       { cost: 2500, name: '普通钢板', desc: '换成钢板，每块要拉 4 下。' },
       { cost: 3500, name: '加厚钢板', desc: '加厚的焊接钢板，每块要拉 5 下。' },
       { cost: 5000, name: '带铆钉加厚钢板', desc: '加厚钢板再打上一圈铆钉，每块要拉 6 下。' },
-      { cost: 7000, name: '带铁丝网的铆钉加厚钢板', desc: '在铆钉加厚钢板上缠满带刺铁丝网（耐久不变），丧尸每拉一下被扎掉 12% 生命值（反伤）。' },
+      { cost: 7000, name: '带铁丝网的铆钉加厚钢板', desc: '在铆钉加厚钢板上缠满带刺铁丝网（耐久不变），丧尸每拉一下被扎掉 20 点生命值（反伤）。' },
     ],
   },
   shock: {
@@ -290,8 +290,8 @@ export const UPGRADES: Record<UpgradeId, { name: string; icon: string; levels: {
     icon: '⚡',
     base: '没有电网。',
     levels: [
-      { cost: 2000, name: '电击陷阱', desc: '每扇窗每 8 秒充能一次，电击正在拆板的丧尸，造成一半生命值的伤害。' },
-      { cost: 4000, name: '高压电网', desc: '每 4 秒充能一次，直接电死正在拆板的丧尸。' },
+      { cost: 2000, name: '电击陷阱', desc: '每扇窗每 8 秒充能一次，电击正在拆板的丧尸，造成 300 伤害并定住 0.8 秒（普通丧尸一下电死）。' },
+      { cost: 4000, name: '高压电网', desc: '每 5 秒充能一次，每次 800 伤害并定住 0.8 秒（普通和精英一下电死，超精英要 4 下）。' },
     ],
   },
   repair: {

@@ -29,8 +29,13 @@ const BOARD_SCALE: [number, number, number][] = [
   [1.02, 1.45, 1.8],
   [1.02, 1.45, 1.8],
 ];
-/** 铁丝网每次被拉扎掉丧尸最大生命值的比例 */
-export const WIRE_REFLECT = 0.12;
+/** 铁丝网反伤：丧尸每拉一下被扎掉的血量（固定值，越强的丧尸越扛得住） */
+export const WIRE_DAMAGE = 20;
+/** 电网：各级的充能间隔（秒）和每次电击伤害（固定值） */
+export const SHOCK = [
+  { period: 8, damage: 300 },
+  { period: 5, damage: 800 },
+];
 
 export interface DoorRT {
   def: DoorDef;
@@ -595,9 +600,8 @@ export class Level {
       g.lightning.bolt(p, new THREE.Vector3(z.pos.x, z.pos.y + 1.3, z.pos.z));
       g.particles.sparks(p, 0x7fc8ff);
       g.audio.shockZap(p);
-      const frac = this.upgrades.shock >= 2 ? 1.01 : 0.5;
       z.stun(0.8);
-      if (g.zombies.damage(z, z.maxHealth * frac, 'torso', 'trap')) return true;
+      if (g.zombies.damage(z, SHOCK[Math.min(this.upgrades.shock, SHOCK.length) - 1].damage, 'torso', 'trap')) return true;
     }
     // 铁丝网反伤：每拉一下都被扎
     if (this.upgrades.armor >= WIRE_TIER && this.boardCount(w) > 0) {
@@ -605,7 +609,7 @@ export class Level {
       g.particles.blood(hand, new THREE.Vector3(w.out[0], 0.4, w.out[1]), 6, 0.8);
       g.audio.wireScrape(hand);
       const dir = new THREE.Vector3(w.out[0], 0, w.out[1]);
-      if (g.zombies.damage(z, z.maxHealth * WIRE_REFLECT, 'torso', 'trap', dir, { point: hand })) return true;
+      if (g.zombies.damage(z, WIRE_DAMAGE, 'torso', 'trap', dir, { point: hand })) return true;
     }
     const idxs = w.present.map((ok, i) => (ok ? i : -1)).filter((i) => i >= 0);
     if (!idxs.length) return false;
@@ -997,7 +1001,7 @@ export class Level {
     if (w.pendingRepair && !w.occupant) this.refillWindow(w);
     if (w.wire) w.wire.visible = u.armor >= WIRE_TIER && this.boardCount(w) > 0;
     if (u.shock > 0) {
-      const period = u.shock >= 2 ? 4 : 8;
+      const period = SHOCK[Math.min(u.shock, SHOCK.length) - 1].period;
       w.charge = Math.min(1, w.charge + dt / period);
       // 充满电时窗户上偶尔冒电火花
       if (w.charge >= 1 && this.boardCount(w) > 0) {
