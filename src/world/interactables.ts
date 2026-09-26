@@ -159,6 +159,15 @@ export class Interactables {
       g.hud.setPromptProgress(null);
       return;
     }
+    // 按住 G 出售时，提示栏显示出售进度
+    const sp = g.weapons.sellPrompt;
+    if (sp) {
+      this.current = null;
+      this.pressing = null;
+      g.hud.setPrompt(sp.text);
+      g.hud.setPromptProgress(sp.frac);
+      return;
+    }
     const p = g.player.pos;
     const fx = -Math.sin(g.player.yaw), fz = -Math.cos(g.player.yaw);
     let best: Interactable | null = null;
@@ -235,6 +244,8 @@ export class Interactables {
 
 /** 神秘箱：花 950 分，转 4 秒，随机给一把枪 */
 class MysteryBox implements Interactable {
+  /** 这次抽箱花了多少（抽到的枪出售时退一半） */
+  private paid = 0;
   pos: THREE.Vector3;
   range = 1.9;
   private state: 'idle' | 'rolling' | 'ready' | 'closing' = 'idle';
@@ -278,6 +289,16 @@ class MysteryBox implements Interactable {
     game.scene.add(this.glow);
 
     this.pos = new THREE.Vector3(cx + face[0] * 0.9, 1, cz + face[1] * 0.9);
+
+    // 抽箱时枪模轮流闪过，第一次建模要几十毫秒；开局后在后台慢慢预先建好，抽箱时就不卡
+    const ids = BOX_POOL.map((w) => w.id);
+    const warm = () => {
+      const id = ids.shift();
+      if (!id) return;
+      this.model(id);
+      setTimeout(warm, 60);
+    };
+    setTimeout(warm, 2500);
   }
 
   private model(id: string) {
@@ -311,7 +332,9 @@ class MysteryBox implements Interactable {
     const g = this.game;
     if (this.state === 'idle') {
       if (g.weapons.busy) return;
-      if (!g.spend(this.cost)) return;
+      const cost = this.cost;
+      if (!g.spend(cost)) return;
+      this.paid = cost;
       const pool = BOX_POOL.filter((w) => !g.weapons.has(w.id));
       this.final = pick(pool.length ? pool : BOX_POOL);
       this.state = 'rolling';
@@ -320,7 +343,7 @@ class MysteryBox implements Interactable {
       g.audio.boxJingle(4.2);
     } else if (this.state === 'ready' && this.final) {
       if (g.weapons.busy) return;
-      g.weapons.give(this.final.id);
+      g.weapons.give(this.final.id, undefined, this.paid);
       g.audio.purchase();
       this.close();
     }

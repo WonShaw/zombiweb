@@ -28,6 +28,7 @@ export class Hud {
     popups: $('popups'),
     round: $('round'),
     wname: $('wname'),
+    loadout: $('loadout'),
     mag: $('mag'),
     prompt: $('prompt'),
     promptBar: $('prompt-bar'),
@@ -48,7 +49,7 @@ export class Hud {
     overRound: $('over-round'),
     overStats: $('over-stats'),
   };
-  private last = { points: -1, wname: '', mag: -1, prompt: '' as string | null, round: -1 };
+  private last = { points: -1, wname: '', mag: -1, prompt: '' as string | null, round: -1, loadout: '' };
   private hitT = 0;
   private annT = 0;
   private flashT = 0;
@@ -192,6 +193,15 @@ export class Hud {
       this.el.points.textContent = String(g.points);
     }
     const w = g.weapons.current;
+    // 右下角的武器列表：当前这把高亮
+    const ws = g.weapons;
+    const key = ws.owned.map((o) => o.def.id).join(',') + '|' + ws.cur;
+    if (key !== L.loadout) {
+      L.loadout = key;
+      this.el.loadout.innerHTML =
+        ws.owned.map((o, i) => `<div class="lo${i === ws.cur ? ' cur' : ''}"><kbd>${i + 1}</kbd>${o.def.name}</div>`).join('') +
+        (ws.owned.length > 1 ? '<div class="lo-hint">Q / E 切换 · 按住 G 出售</div>' : '');
+    }
     if (w.def.name !== L.wname) {
       L.wname = w.def.name;
       this.el.wname.textContent = w.def.name;

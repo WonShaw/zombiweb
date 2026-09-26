@@ -360,6 +360,30 @@ body {
     transform: translate(var(--dx), var(--dy));
   }
 }
+#loadout {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  margin-bottom: 8px;
+  font-size: 12.5px;
+  color: rgba(236, 230, 216, 0.5);
+  text-shadow: 0 1px 2px #000;
+}
+#loadout .lo kbd {
+  margin-right: 6px;
+  padding: 0 4px;
+  font-size: 10px;
+  opacity: 0.7;
+}
+#loadout .lo.cur {
+  color: #fff;
+}
+#loadout .lo-hint {
+  margin-top: 3px;
+  font-size: 11px;
+  opacity: 0.8;
+}
 #wname {
   font-size: 17px;
   letter-spacing: 0.08em;
@@ -691,6 +715,29 @@ kbd {
 .loadout .slot:disabled {
   cursor: default;
   opacity: 0.75;
+}
+.loadout .slot-wrap {
+  display: inline-flex;
+  align-items: stretch;
+}
+.loadout .slot-wrap .slot {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.loadout .sell {
+  width: auto;
+  margin: 0 0 0 -1px;
+  padding: 4px 9px;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  color: #9fe89a;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+.loadout .sell:disabled {
+  color: var(--muted);
+  cursor: default;
+  opacity: 0.6;
 }
 .cats {
   display: flex;

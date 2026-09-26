@@ -197,6 +197,11 @@ export class Game {
     }, 300);
   }
 
+  /** 商店里点“出售” */
+  sellWeapon(slot: number) {
+    this.weapons.sell(slot);
+  }
+
   buyWeapon(id: string, slot: number) {
     const def = WEAPONS[id];
     if (!def || !def.shop || this.weapons.has(id)) return;

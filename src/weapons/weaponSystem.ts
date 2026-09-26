@@ -14,7 +14,14 @@ export interface Owned {
   def: WeaponDef;
   mag: number;
   model: GunModel;
+  /** 买这把枪花的积分（神秘箱抽到的按抽箱价算），出售退一半 */
+  paid: number;
 }
+
+/** 最多携带几把枪 */
+export const MAX_GUNS = 4;
+/** 按住 G 多久卖掉手上的枪 */
+const SELL_HOLD = 0.6;
 
 /** 各类枪的腰射位置：长枪要离镜头远一些，否则枪托会糊满屏幕 */
 const HIP: Record<string, THREE.Vector3> = {
@@ -142,8 +149,8 @@ export class WeaponSystem {
     return this.owned.some((o) => o.def.id === id);
   }
 
-  /** 获得武器。两把满了就替换 slot 指定的槽位（默认手上这把）；已有同款就只补满弹匣 */
-  give(id: string, slot = this.cur) {
+  /** 获得武器。满了就替换 slot 指定的槽位（默认手上这把）；已有同款就只补满弹匣。paid = 花了多少积分 */
+  give(id: string, slot = this.cur, paid = WEAPONS[id].cost) {
     const def = WEAPONS[id];
     const existing = this.owned.findIndex((o) => o.def.id === id);
     if (existing >= 0) {
@@ -153,13 +160,13 @@ export class WeaponSystem {
     const model = buildGun(def.model, true);
     model.group.visible = false;
     this.holder.add(model.group);
-    const w: Owned = { def, mag: def.mag, model };
+    const w: Owned = { def, mag: def.mag, model, paid };
     let idx: number;
-    if (this.owned.length < 2) {
+    if (this.owned.length < MAX_GUNS) {
       this.owned.push(w);
       idx = this.owned.length - 1;
     } else {
-      idx = clamp(slot, 0, 1);
+      idx = clamp(slot, 0, MAX_GUNS - 1);
       this.holder.remove(this.owned[idx].model.group);
       this.owned[idx] = w;
     }
@@ -171,6 +178,32 @@ export class WeaponSystem {
     this.swapped = true;
     this.reloadT = -1;
     this.burstLeft = 0;
+  }
+
+  sellPrice(o: Owned) {
+    return Math.floor(o.paid / 2);
+  }
+
+  /** 卖掉第 idx 把枪，退一半积分。最后一把不能卖。成功返回 true */
+  sell(idx: number) {
+    if (this.owned.length <= 1 || idx < 0 || idx >= this.owned.length) return false;
+    const o = this.owned[idx];
+    this.holder.remove(o.model.group);
+    this.owned.splice(idx, 1);
+    if (idx < this.cur) this.cur--;
+    else if (idx === this.cur) {
+      // 卖掉手上这把：换成下一把，从下方抬起
+      this.cur = Math.min(idx, this.owned.length - 1);
+      this.switchT = SWITCH_HALF;
+      this.switchTo = this.cur;
+      this.swapped = true;
+      this.reloadT = -1;
+      this.burstLeft = 0;
+    }
+    this.showCurrent();
+    this.game.refund(this.sellPrice(o));
+    this.game.audio.purchase();
+    return true;
   }
 
   private showCurrent() {
@@ -193,6 +226,45 @@ export class WeaponSystem {
     this.swapped = false;
     this.reloadT = -1;
     this.burstLeft = 0;
+  }
+
+  private sellT = 0;
+  /** 卖掉之后要松开 G 才能卖下一把 */
+  private sellLock = false;
+  /** 按住 G 时显示的出售提示和进度（交给交互提示栏显示） */
+  sellPrompt: { text: string; frac: number | null } | null = null;
+
+  private updateSell(dt: number) {
+    const inp = this.game.input;
+    if (!inp.down('KeyG') || this.game.player.dead) {
+      this.sellT = 0;
+      this.sellLock = false;
+      this.sellPrompt = null;
+      return;
+    }
+    if (this.sellLock) {
+      this.sellPrompt = null;
+      return;
+    }
+    if (this.owned.length <= 1) {
+      this.sellPrompt = { text: '只剩这一把枪，不能出售', frac: null };
+      return;
+    }
+    const w = this.current;
+    const price = this.sellPrice(w);
+    if (this.busy) {
+      this.sellT = 0;
+      this.sellPrompt = { text: `按住 G 出售 ${w.def.name}（+${price}）`, frac: 0 };
+      return;
+    }
+    this.sellT += dt;
+    this.sellPrompt = { text: `按住 G 出售 ${w.def.name}（+${price}）`, frac: Math.min(1, this.sellT / SELL_HOLD) };
+    if (this.sellT >= SELL_HOLD) {
+      this.sell(this.cur);
+      this.sellT = 0;
+      this.sellLock = true;
+      this.sellPrompt = null;
+    }
   }
 
   /** 这次按下的左键已经被用掉了，松开前不要开火 */
@@ -259,10 +331,15 @@ export class WeaponSystem {
 
       if (!busy) {
         if (inp.wasPressed('KeyR')) this.startReload();
-        if (inp.wasPressed('Digit1')) this.beginSwitch(0);
-        if (inp.wasPressed('Digit2')) this.beginSwitch(1);
-        if ((inp.wheel !== 0 || inp.wasPressed('KeyQ')) && this.owned.length > 1) this.beginSwitch(1 - this.cur);
+        for (let i = 0; i < MAX_GUNS; i++) if (inp.wasPressed(`Digit${i + 1}`)) this.beginSwitch(i);
+        // Q 上一把、E 下一把（循环），滚轮同理
+        const n = this.owned.length;
+        if (n > 1) {
+          if (inp.wasPressed('KeyE') || inp.wheel > 0) this.beginSwitch((this.cur + 1) % n);
+          else if (inp.wasPressed('KeyQ') || inp.wheel < 0) this.beginSwitch((this.cur - 1 + n) % n);
+        }
       }
+      this.updateSell(dt);
       if (inp.wasPressed('KeyV') || inp.mousePressed[1]) this.startKnife();
 
       if (!inp.mouseDown[0]) this.holdFire = false;

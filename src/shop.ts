@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { Game } from './game';
 import { WEAPONS, CLASS_NAMES, UPGRADES, type WeaponDef, type WeaponClass, type UpgradeId } from './weapons/defs';
 import { buildGun } from './weapons/models';
+import { MAX_GUNS } from './weapons/weaponSystem';
 import { TURRET, TURRET_UPGRADES, buildTurretModel, type TurretUpgradeId } from './world/turrets';
 import { clamp } from './core/util';
 
@@ -68,6 +69,12 @@ export class Shop {
       this.render();
     });
     $('shop-loadout').addEventListener('click', (e) => {
+      const sell = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-sell]');
+      if (sell) {
+        if (!sell.disabled) this.game.sellWeapon(Number(sell.dataset.sell));
+        this.render();
+        return;
+      }
       const b = (e.target as HTMLElement).closest<HTMLElement>('[data-slot]');
       if (!b) return;
       this.slot = Number(b.dataset.slot);
@@ -129,16 +136,18 @@ export class Shop {
   private renderWeapons() {
     const g = this.game;
     const owned = g.weapons.owned;
-    const full = owned.length >= 2;
+    const full = owned.length >= MAX_GUNS;
+    this.slot = Math.min(this.slot, owned.length - 1);
     $('shop-loadout').innerHTML =
-      `<span class="lbl">${full ? '买新枪会替换：' : '有空槽位，新枪会放进去'}</span>` +
-      [0, 1]
-        .map((i) => {
-          const o = owned[i];
-          const sel = full && i === this.slot ? ' sel' : '';
-          return `<button class="slot${sel}" data-slot="${i}" ${full ? '' : 'disabled'}><kbd>${i + 1}</kbd>${o ? o.def.name : '空槽位'}</button>`;
-        })
-        .join('');
+      `<span class="lbl">${full ? '买新枪会替换：' : `还有 ${MAX_GUNS - owned.length} 个空槽位，新枪会放进去`}</span>` +
+      Array.from({ length: MAX_GUNS }, (_, i) => {
+        const o = owned[i];
+        const sel = full && i === this.slot ? ' sel' : '';
+        const sell = o
+          ? `<button class="sell" data-sell="${i}" ${owned.length > 1 ? '' : 'disabled title="最后一把枪不能卖"'}>出售 +${g.weapons.sellPrice(o)}</button>`
+          : '';
+        return `<span class="slot-wrap"><button class="slot${sel}" data-slot="${i}" ${full ? '' : 'disabled'}><kbd>${i + 1}</kbd>${o ? o.def.name : '空槽位'}</button>${sell}</span>`;
+      }).join('');
 
     $('shop-cats').innerHTML = CATS.map((c) => {
       const n = c === 'all' ? Object.keys(WEAPONS).length : Object.values(WEAPONS).filter((w) => w.cls === c).length;
