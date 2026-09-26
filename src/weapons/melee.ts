@@ -35,6 +35,8 @@ export interface MeleeDef {
   move: number;
   /** 待机时刀尖的姿势（手腕旋转 x, y, z） */
   idle: [number, number, number];
+  /** 手握在模型的哪个高度（长柄武器不握在最底端：日本刀握在护手下面，斧头、撬棍往上握一段） */
+  grip: number;
 }
 
 const A = (damage: number, time: number, range: number, arc: number, targets: number, anim: MeleeAnim, force: number): MeleeAttack => ({
@@ -45,42 +47,42 @@ export const MELEE: Record<string, MeleeDef> = {
   knife: {
     id: 'knife', name: '军刀', desc: '开局配发的 M9 军刀，出手快、跑得快。', cost: 0,
     light: A(150, 0.42, 1.8, 0.7, 1, 'slash', 1.4), heavy: A(350, 0.85, 1.75, 0.35, 1, 'stab', 2),
-    move: 1.1, idle: [-0.35, 0.1, 0.35],
+    move: 1.1, idle: [-0.35, 0.1, 0.35], grip: 0,
   },
   karambit: {
     id: 'karambit', name: '爪刀', desc: '弯钩形的爪刀，攻速最快。', cost: 1200,
     light: A(160, 0.32, 1.75, 0.7, 1, 'slash', 1.3), heavy: A(380, 0.72, 1.75, 0.4, 1, 'stab', 2),
-    move: 1.12, idle: [-0.4, 0.1, 0.4],
+    move: 1.12, idle: [-0.4, 0.1, 0.4], grip: 0,
   },
   crowbar: {
     id: 'crowbar', name: '撬棍', desc: '一根实心钢撬棍，砸起来很结实。', cost: 800,
     light: A(200, 0.62, 2.0, 0.7, 1, 'slash', 2), heavy: A(460, 1.1, 2.0, 0.55, 2, 'chop', 3),
-    move: 1.03, idle: [0.35, 0, 0.3],
+    move: 1.03, idle: [0.35, 0, 0.3], grip: 0.1,
   },
   bat: {
     id: 'bat', name: '棒球棍', desc: '木制球棒，横扫能一次打中两只。', cost: 900,
     light: A(190, 0.6, 2.2, 0.8, 2, 'slash', 2.4), heavy: A(480, 1.15, 2.2, 0.6, 2, 'chop', 3.5),
-    move: 1.02, idle: [0.5, 0, 0.25],
+    move: 1.02, idle: [0.5, 0, 0.25], grip: 0.045,
   },
   shovel: {
     id: 'shovel', name: '工兵铲', desc: '折叠工兵铲，劈砍兼拍击。', cost: 1000,
     light: A(210, 0.62, 2.1, 0.75, 2, 'slash', 2), heavy: A(520, 1.15, 2.1, 0.55, 2, 'chop', 3),
-    move: 1.03, idle: [0.4, 0, 0.3],
+    move: 1.03, idle: [0.4, 0, 0.3], grip: 0.06,
   },
   kukri: {
     id: 'kukri', name: '尼泊尔刀', desc: '廓尔喀弯刀，刀头沉，砍得又快又深。', cost: 1500,
     light: A(240, 0.48, 2.0, 0.75, 2, 'slash', 1.8), heavy: A(560, 0.95, 2.0, 0.55, 2, 'chop', 2.6),
-    move: 1.08, idle: [-0.1, 0.1, 0.4],
+    move: 1.08, idle: [-0.1, 0.1, 0.4], grip: 0,
   },
   axe: {
     id: 'axe', name: '消防斧', desc: '沉重的消防斧，重击能劈开一小群。', cost: 2200,
     light: A(320, 0.72, 2.3, 0.75, 2, 'slash', 2.5), heavy: A(900, 1.3, 2.3, 0.6, 3, 'chop', 4.5),
-    move: 0.97, idle: [0.5, 0, 0.25],
+    move: 0.97, idle: [0.5, 0, 0.25], grip: 0.17,
   },
   katana: {
     id: 'katana', name: '日本刀', desc: '长刀横扫范围最大，一刀能砍三只。', cost: 3000,
     light: A(300, 0.48, 2.6, 0.9, 3, 'slash', 2.2), heavy: A(800, 0.95, 2.7, 0.7, 3, 'chop', 3.2),
-    move: 1.06, idle: [0.5, 0, 0.2],
+    move: 1.06, idle: [0.5, 0, 0.2], grip: 0.145,
   },
 };
 export const DEFAULT_MELEE = 'knife';
@@ -117,7 +119,7 @@ const MODELS: Record<string, (g: THREE.Group) => void> = {
   },
   shovel(g) {
     latheY(g, [[0, -0.1], [0.018, -0.1], [0.016, -0.08], [0.0145, 0.4], [0, 0.4]], 0, 0, M.olive, 12);
-    latheY(g, [[0.0155, -0.08], [0.0155, 0.08], [0.0148, 0.08], [0.0148, -0.08]], 0, 0, wrap, 12);
+    latheY(g, [[0.0155, -0.03], [0.0155, 0.14], [0.0148, 0.14], [0.0148, -0.03]], 0, 0, wrap, 12);
     rbox(g, 0.04, 0.05, 0.032, 0, 0.415, 0, M.dark, 0.004);
     side(g, [[-0.075, 0.43], [0.075, 0.43], [0.08, 0.52], [0.05, 0.6], [0, 0.63], [-0.05, 0.6], [-0.08, 0.52]], 0.004, M.olive, 0, 0.001);
     box(g, 0.008, 0.16, 0.008, 0, 0.51, 0, M.dark);
@@ -130,7 +132,7 @@ const MODELS: Record<string, (g: THREE.Group) => void> = {
   },
   axe(g) {
     latheY(g, [[0, -0.12], [0.02, -0.12], [0.018, -0.1], [0.016, 0.64], [0, 0.64]], 0, 0, yellow, 12);
-    latheY(g, [[0.0172, -0.1], [0.0172, 0.08], [0.0165, 0.08], [0.0165, -0.1]], 0, 0, wrap, 12);
+    latheY(g, [[0.0172, 0.08], [0.0172, 0.26], [0.0165, 0.26], [0.0165, 0.08]], 0, 0, wrap, 12);
     side(g, [[0.04, 0.54], [0.04, 0.625], [-0.02, 0.635], [-0.1, 0.685], [-0.132, 0.65], [-0.132, 0.5], [-0.1, 0.47], [-0.02, 0.535]], 0.022, red, 0, 0.004);
     side(g, [[0.035, 0.56], [0.14, 0.585], [0.035, 0.615]], 0.016, red, 0, 0.003);
     side(g, [[-0.118, 0.48], [-0.136, 0.5], [-0.136, 0.652], [-0.118, 0.676]], 0.0232, M.blade, 0, 0.002);
@@ -149,7 +151,11 @@ const MODELS: Record<string, (g: THREE.Group) => void> = {
 /** 建一把近战武器；withHand 时加上握着它的拳头 */
 export function buildMelee(id: string, withHand: boolean) {
   const g = new THREE.Group();
-  (MODELS[id] ?? MODELS.knife)(g);
+  // 整把武器往下挪 grip，让手（原点）正好握在该握的位置
+  const body = new THREE.Group();
+  body.position.y = -(MELEE[id]?.grip ?? 0);
+  (MODELS[id] ?? MODELS.knife)(body);
+  g.add(body);
   if (withHand) box(g, 0.056, 0.078, 0.086, 0.002, -0.004, 0.006, M.skin);
   finalize(g);
   return g;
