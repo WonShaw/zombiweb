@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>死亡之夜 · 丧尸模式</title>
+  </head>
+  <body>
+    <canvas id="game"></canvas>
+
+    <div id="hud" class="hidden">
+      <div id="damage"></div>
+      <div id="flash"></div>
+      <div id="hurtdir"></div>
+      <div id="crosshair"><i class="t"></i><i class="b"></i><i class="l"></i><i class="r"></i></div>
+      <div id="hitmarker"><i></i><i></i><i></i><i></i></div>
+      <div id="reload-hint"></div>
+      <div id="prompt" class="hidden"></div>
+      <div id="announce"><div id="ann-big"></div><div id="ann-small"></div></div>
+      <div id="powerups"></div>
+      <div id="shop-hint"><kbd>B</kbd>商店</div>
+      <div id="bl">
+        <div id="perks"></div>
+        <div id="round"></div>
+      </div>
+      <div id="br">
+        <div id="points-wrap">
+          <div id="popups"></div>
+          <div id="points">500</div>
+        </div>
+        <div id="weapon">
+          <div id="wname">M1911</div>
+          <div id="ammo"><span id="mag">8</span><span class="sep">/</span><span id="reserve">∞</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="menu" class="overlay">
+      <div class="panel">
+        <h1>死亡之夜</h1>
+        <div class="sub">ZOMBIES · 撑过一波又一波的尸潮</div>
+        <button id="btn-start" class="primary">开始游戏</button>
+        <div class="controls">
+          <div><kbd>W A S D</kbd>移动</div>
+          <div><kbd>鼠标</kbd>视角</div>
+          <div><kbd>左键</kbd>射击</div>
+          <div><kbd>右键</kbd>瞄准</div>
+          <div><kbd>R</kbd>换弹</div>
+          <div><kbd>V</kbd> / <kbd>中键</kbd>近战刀</div>
+          <div><kbd>B</kbd>打开商店</div>
+          <div><kbd>F</kbd>购买 / 互动</div>
+          <div><kbd>按住 F</kbd>修复窗户木板</div>
+          <div><kbd>Shift</kbd>冲刺</div>
+          <div><kbd>空格</kbd>跳跃</div>
+          <div><kbd>1 2</kbd> / <kbd>滚轮</kbd>切枪</div>
+          <div><kbd>Esc</kbd>暂停</div>
+        </div>
+        <div class="tips">
+          击中丧尸 +10 · 击杀 +60 · 爆头 +100 · 刀杀 +130。弹药无限，只需换弹。<br />
+          按 B 打开商店买枪、升级路障；也可以开门、抽神秘箱、喝饮料。
+        </div>
+        <div class="settings">
+          <label>鼠标灵敏度 <input type="range" min="0.2" max="3" step="0.05" data-setting="sens" /><output></output></label>
+          <label>音量 <input type="range" min="0" max="1" step="0.05" data-setting="vol" /><output></output></label>
+        </div>
+      </div>
+    </div>
+
+    <div id="pause" class="overlay hidden">
+      <div class="panel small">
+        <h2>已暂停</h2>
+        <button id="btn-resume" class="primary">继续游戏</button>
+        <button id="btn-restart">重新开始</button>
+        <div class="settings">
+          <label>鼠标灵敏度 <input type="range" min="0.2" max="3" step="0.05" data-setting="sens" /><output></output></label>
+          <label>音量 <input type="range" min="0" max="1" step="0.05" data-setting="vol" /><output></output></label>
+        </div>
+      </div>
+    </div>
+
+    <div id="shop" class="overlay hidden">
+      <div class="shop">
+        <header>
+          <div class="shop-title">军需商店</div>
+          <div class="shop-points">积分 <b id="shop-points">0</b></div>
+          <button id="shop-close">返回游戏 <kbd>B</kbd></button>
+        </header>
+        <nav id="shop-tabs" class="shop-tabs">
+          <button data-tab="weapons">武器</button>
+          <button data-tab="barricade">路障升级</button>
+        </nav>
+        <section id="tab-weapons">
+          <div id="shop-loadout" class="loadout"></div>
+          <div id="shop-cats" class="cats"></div>
+          <div id="shop-grid" class="grid"></div>
+        </section>
+        <section id="tab-barricade" class="hidden">
+          <p class="upg-note">升级对所有窗户同时生效。丧尸每拽一下路障，会先触发电网，再扣木板耐久。</p>
+          <div id="shop-upgrades" class="upgrades"></div>
+        </section>
+      </div>
+    </div>
+
+    <div id="gameover" class="overlay hidden">
+      <div class="panel small">
+        <h2 class="red">游戏结束</h2>
+        <div id="over-round" class="sub"></div>
+        <div id="over-stats"></div>
+        <button id="btn-again" class="primary">再来一局</button>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

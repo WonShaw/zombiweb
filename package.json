@@ -1,0 +1,21 @@
+{
+  "name": "zombie",
+  "private": true,
+  "version": "0.1.0",
+  "description": "类使命召唤丧尸模式的 Three.js 第一人称生存游戏",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "three": "^0.186.1"
+  },
+  "devDependencies": {
+    "@types/three": "^0.186.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.1"
+  }
+}
