@@ -228,21 +228,36 @@ export function groundTexture() {
   return tex(c);
 }
 
-/** 窗户路障用的板子：0 普通木板，1 铁皮包边木板，2 钢板 */
-export function plankTexture(variant: 0 | 1 | 2 = 0) {
+/**
+ * 窗户路障用的板子：
+ * 0 普通木板，1 厚木板，2 带铆钉厚木板，3 普通钢板，4 加厚钢板，5 带铆钉钢板
+ */
+export function plankTexture(variant: 0 | 1 | 2 | 3 | 4 | 5 = 0) {
   const W = 256;
   const H = 48;
   const r = seeded(9 + variant);
   const { c, g } = mk(W, H);
-  const grain = noiseField(W, H, variant === 2 ? 16 : 3, variant === 2 ? 4 : 24, 3, r);
+  const steel = variant >= 3;
+  const grain = noiseField(W, H, steel ? 16 : 3, steel ? 4 : 24, 3, r);
   const img = g.createImageData(W, H);
   const d = img.data;
-  const base = variant === 2 ? [118, 122, 128] : [140, 104, 68];
+  const base = [
+    [140, 104, 68],
+    [112, 78, 48],
+    [112, 78, 48],
+    [112, 122, 136],
+    [82, 90, 102],
+    [106, 110, 118],
+  ][variant];
+  // 厚板和加厚钢板有明显的倒角：上沿亮、下沿暗
+  const bevel = variant === 1 || variant === 2 || variant === 4 ? 6 : 3;
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
       const i = y * W + x;
-      let k = variant === 2 ? 0.8 + grain[i] * 0.3 : 0.7 + grain[i] * 0.55;
-      if (y < 3 || y > H - 4) k *= 0.55;
+      let k = steel ? 0.8 + grain[i] * 0.3 : 0.66 + grain[i] * (variant === 0 ? 0.55 : 0.7);
+      if (y < bevel) k *= bevel > 3 ? 1.25 : 0.55;
+      else if (y > H - 1 - bevel) k *= 0.5;
+      if (steel && variant !== 5 && (x < 3 || x > W - 4)) k *= 0.6;
       const o = i * 4;
       d[o] = c255(base[0] * k);
       d[o + 1] = c255(base[1] * k);
@@ -256,39 +271,67 @@ export function plankTexture(variant: 0 | 1 | 2 = 0) {
     g.beginPath();
     g.arc(x, y, rad, 0, 7);
     g.fill();
-    g.fillStyle = 'rgba(255,255,255,0.25)';
+    g.fillStyle = 'rgba(255,255,255,0.28)';
     g.beginPath();
-    g.arc(x - 1, y - 1, rad * 0.45, 0, 7);
+    g.arc(x - rad * 0.3, y - rad * 0.3, rad * 0.45, 0, 7);
     g.fill();
   };
-  if (variant === 0) {
-    for (const x of [12, W - 14]) {
-      rivet(x, H * 0.35, 3);
-      rivet(x, H * 0.7, 3);
-    }
-  } else if (variant === 1) {
-    for (const x of [8, W / 2 - 14, W - 36]) {
-      g.fillStyle = '#35373b';
-      g.fillRect(x, 0, 28, H);
-      g.fillStyle = 'rgba(255,255,255,0.12)';
-      g.fillRect(x, 0, 28, 3);
-      rivet(x + 14, H * 0.3, 3.5);
-      rivet(x + 14, H * 0.72, 3.5);
-    }
-  } else {
-    g.strokeStyle = 'rgba(0,0,0,0.5)';
-    g.lineWidth = 3;
-    g.strokeRect(2, 2, W - 4, H - 4);
-    for (let x = 12; x < W; x += 34) {
-      rivet(x, 9, 3);
-      rivet(x, H - 9, 3);
-    }
-    for (let k = 0; k < 6; k++) {
-      g.fillStyle = `rgba(120,60,20,${0.2 + r() * 0.25})`;
+  const scratches = (n: number, alpha: number) => {
+    g.strokeStyle = `rgba(255,255,255,${alpha})`;
+    g.lineWidth = 1;
+    for (let k = 0; k < n; k++) {
+      const x = r() * W, y = r() * H;
       g.beginPath();
-      g.ellipse(r() * W, r() * H, 6 + r() * 16, 3 + r() * 6, 0, 0, 7);
-      g.fill();
+      g.moveTo(x, y);
+      g.lineTo(x + 10 + r() * 30, y + (r() - 0.5) * 6);
+      g.stroke();
     }
+  };
+  switch (variant) {
+    case 0:
+      for (const x of [12, W - 14]) {
+        rivet(x, H * 0.35, 3);
+        rivet(x, H * 0.7, 3);
+      }
+      break;
+    case 1:
+      for (const x of [14, W / 2, W - 16]) rivet(x, H / 2, 3);
+      break;
+    case 2:
+      for (const x of [8, W / 2 - 14, W - 36]) {
+        g.fillStyle = '#35373b';
+        g.fillRect(x, 0, 28, H);
+        g.fillStyle = 'rgba(255,255,255,0.12)';
+        g.fillRect(x, 0, 28, 3);
+        rivet(x + 14, H * 0.3, 4.5);
+        rivet(x + 14, H * 0.72, 4.5);
+      }
+      break;
+    case 3:
+      scratches(14, 0.18);
+      break;
+    case 4:
+      g.fillStyle = 'rgba(0,0,0,0.35)';
+      g.fillRect(W / 2 - 2, 0, 4, H);
+      g.fillStyle = 'rgba(255,220,160,0.18)';
+      for (let y = 4; y < H - 4; y += 5) g.fillRect(W / 2 - 3, y, 6, 2);
+      scratches(8, 0.12);
+      break;
+    case 5:
+      g.strokeStyle = 'rgba(0,0,0,0.5)';
+      g.lineWidth = 3;
+      g.strokeRect(2, 2, W - 4, H - 4);
+      for (let x = 12; x < W; x += 34) {
+        rivet(x, 9, 3.2);
+        rivet(x, H - 9, 3.2);
+      }
+      for (let k = 0; k < 6; k++) {
+        g.fillStyle = `rgba(120,60,20,${0.2 + r() * 0.25})`;
+        g.beginPath();
+        g.ellipse(r() * W, r() * H, 6 + r() * 16, 3 + r() * 6, 0, 0, 7);
+        g.fill();
+      }
+      break;
   }
   return tex(c);
 }

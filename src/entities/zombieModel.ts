@@ -2,6 +2,70 @@ import * as THREE from 'three';
 import { pick, rand } from '../core/util';
 
 export type HitPart = 'head' | 'torso' | 'limb';
+
+/**
+ * 丧尸的固定姿势：出生时随机选一种，一直保持到死，挨枪不会变。
+ * 数值都是叠加在基础动画上的偏移（弧度）。
+ */
+interface Pose {
+  name: string;
+  weight: number;
+  torsoX: number; // + 前倾，- 后仰
+  torsoZ: number; // 侧倾
+  torsoY: number; // 扭身
+  headX: number; // + 低头，- 仰头
+  headZ: number; // 歪头
+  armL: number; // 叠加到肩部旋转：负数把手抬得更高，正数往下垂
+  armR: number;
+  armLZ: number; // 手臂向外张开
+  armRZ: number;
+  foreL: number;
+  foreR: number;
+  limp: number; // 拖腿程度 0..1
+}
+
+const P = (p: Partial<Pose> & { name: string; weight: number }): Pose => ({
+  torsoX: 0, torsoZ: 0, torsoY: 0, headX: 0, headZ: 0,
+  armL: 0, armR: 0, armLZ: 0, armRZ: 0, foreL: 0, foreR: 0, limp: 0,
+  ...p,
+});
+
+const POSES: Pose[] = [
+  P({ name: '经典伸手', weight: 3 }),
+  P({ name: '佝偻驼背', weight: 1.5, torsoX: 0.38, headX: -0.3, armL: 0.6, armR: 0.5, foreL: -0.3, foreR: -0.2 }),
+  P({ name: '后仰', weight: 1.5, torsoX: -0.32, torsoZ: 0.12, headX: -0.45, headZ: 0.3, armL: 0.5, armR: 0.35, armLZ: -0.2, armRZ: 0.15 }),
+  P({ name: '单手垂下', weight: 1.5, torsoZ: 0.12, headZ: 0.28, armL: 1.3, foreL: 0.2, armR: -0.1 }),
+  P({ name: '歪脖扭身', weight: 1.5, torsoY: 0.35, torsoZ: 0.15, headX: 0.15, headZ: 0.7, armL: -0.2, armR: 0.3 }),
+  P({ name: '高举双手', weight: 1, torsoX: -0.1, headX: -0.2, armL: -0.75, armR: -0.85, foreL: -0.4, foreR: -0.3 }),
+  P({ name: '拖腿', weight: 1.5, torsoZ: 0.2, headZ: 0.2, armL: 0.3, armR: -0.1, limp: 1 }),
+];
+
+function pickPose(): Pose {
+  const total = POSES.reduce((a, p) => a + p.weight, 0);
+  let x = Math.random() * total;
+  let pose = POSES[0];
+  for (const p of POSES) {
+    x -= p.weight;
+    if (x <= 0) {
+      pose = p;
+      break;
+    }
+  }
+  // 随机左右镜像，让同一种姿势也有左右之分
+  if (Math.random() < 0.5) return pose;
+  return {
+    ...pose,
+    torsoZ: -pose.torsoZ,
+    torsoY: -pose.torsoY,
+    headZ: -pose.headZ,
+    armL: pose.armR,
+    armR: pose.armL,
+    armLZ: -pose.armRZ,
+    armRZ: -pose.armLZ,
+    foreL: pose.foreR,
+    foreR: pose.foreL,
+  };
+}
 export type SpeedType = 'walk' | 'run' | 'sprint';
 
 /** 几何体按“关节在顶部”平移，方便绕关节旋转 */
@@ -60,12 +124,9 @@ export class ZombieModel {
   lShin = new THREE.Group();
   rShin = new THREE.Group();
   meshes: THREE.Mesh[] = [];
-  /** 受击后仰 / 甩头的幅度，随时间衰减 */
-  private flinch = 0;
-  private headFlinch = 0;
-  private flinchSide = 1;
-  /** 每只丧尸的姿态差异 */
-  private quirk = { armL: rand(-0.25, 0.15), armR: rand(-0.25, 0.15), headTilt: rand(-0.3, 0.3), limp: rand(0, 0.5) };
+  /** 每只丧尸固定的姿势 + 细微的随机差异 */
+  readonly pose = pickPose();
+  private quirk = { armL: rand(-0.2, 0.12), armR: rand(-0.2, 0.12), headTilt: rand(-0.2, 0.2), limp: rand(0, 0.4) };
 
   constructor(owner: object, fastEyes: boolean) {
     const skin = mat(pick(SKINS));
@@ -137,19 +198,21 @@ export class ZombieModel {
    */
   animate(phase: number, type: SpeedType, mode: 'move' | 'idle' | 'attack' | 'tear' | 'climb' | 'rise', t: number) {
     const q = this.quirk;
+    const pose = this.pose;
     const s = Math.sin(phase);
     const c = Math.cos(phase);
     const amp = type === 'walk' ? 0.42 : type === 'run' ? 0.75 : 0.95;
     const lean = type === 'walk' ? 0.14 : type === 'run' ? 0.3 : 0.42;
+    const limp = Math.max(q.limp, pose.limp);
 
-    // 腿
+    // 腿（拖腿的丧尸左腿几乎不抬，膝盖打弯拖在后面）
     if (mode === 'move') {
-      this.lLeg.rotation.x = -s * amp * (1 - q.limp * 0.5);
+      this.lLeg.rotation.x = -s * amp * (1 - limp * 0.6);
       this.rLeg.rotation.x = s * amp;
-      this.lShin.rotation.x = Math.max(0, c) * amp * 1.2;
+      this.lShin.rotation.x = Math.max(0, c) * amp * 1.2 * (1 - limp * 0.5) + limp * 0.35;
       this.rShin.rotation.x = Math.max(0, -c) * amp * 1.2;
-      this.hips.position.y = 0.96 - Math.abs(c) * 0.04 * amp;
-      this.hips.rotation.z = s * 0.06;
+      this.hips.position.y = 0.96 - Math.abs(c) * 0.04 * amp - limp * 0.03;
+      this.hips.rotation.z = s * (0.06 + limp * 0.1);
       this.hips.rotation.y = s * 0.08;
     } else if (mode === 'climb') {
       this.lLeg.rotation.x = -1.2;
@@ -210,27 +273,20 @@ export class ZombieModel {
     this.lFore.rotation.x = lf;
     this.rFore.rotation.x = rf;
 
-    // 叠加受击动作
-    const f = this.flinch, hf = this.headFlinch;
-    this.torso.rotation.x -= f * 0.5;
-    this.torso.rotation.z += this.flinchSide * f * 0.22;
-    this.head.rotation.x -= hf * 0.9;
-    this.head.rotation.z += this.flinchSide * hf * 0.45;
-    this.lArm.rotation.x += f * 0.7;
-    this.rArm.rotation.x += f * 0.55;
-  }
-
-  hitReact(part: HitPart, amount: number, side: number) {
-    this.flinchSide = side;
-    if (part === 'head') {
-      this.headFlinch = Math.min(1.2, this.headFlinch + amount * 1.2);
-      this.flinch = Math.min(1.2, this.flinch + amount * 0.35);
-    } else this.flinch = Math.min(1.2, this.flinch + amount);
-  }
-
-  decayFlinch(dt: number) {
-    this.flinch *= Math.exp(-9 * dt);
-    this.headFlinch *= Math.exp(-7 * dt);
+    // 叠加固定姿势。攻击、拆板、爬出地面时手臂动作要看得清，姿势对手臂只保留一小部分
+    const action = mode === 'attack' || mode === 'tear' || mode === 'rise';
+    const armK = action ? 0.25 : type === 'sprint' && mode === 'move' ? 0.4 : 1;
+    this.torso.rotation.x += pose.torsoX;
+    this.torso.rotation.z += pose.torsoZ;
+    this.torso.rotation.y += pose.torsoY;
+    this.head.rotation.x += pose.headX;
+    this.head.rotation.z += pose.headZ;
+    this.lArm.rotation.x += pose.armL * armK;
+    this.rArm.rotation.x += pose.armR * armK;
+    this.lArm.rotation.z += pose.armLZ * armK;
+    this.rArm.rotation.z += pose.armRZ * armK;
+    this.lFore.rotation.x += pose.foreL * armK;
+    this.rFore.rotation.x += pose.foreR * armK;
   }
 
   setEyesRed() {

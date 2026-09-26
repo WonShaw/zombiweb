@@ -822,10 +822,13 @@ kbd {
 .pips {
   margin-left: auto;
   display: flex;
-  gap: 5px;
+  gap: 4px;
+}
+.upg-head b {
+  white-space: nowrap;
 }
 .pips i {
-  width: 22px;
+  width: 14px;
   height: 7px;
   border-radius: 2px;
   background: rgba(255, 255, 255, 0.12);

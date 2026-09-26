@@ -12,12 +12,21 @@ export const DOOR_TOP = 2.4;
 export const SILL = 0.9;
 export const LINTEL = 2.1;
 export const BOARDS = 6;
-/** 各档路障板子的缩放：加固木板更厚，钢板更宽 */
+/**
+ * 路障材质档位：0 普通木板，1 厚木板，2 带铆钉厚木板，3 普通钢板，4 加厚钢板，5 带铆钉钢板，
+ * 6 铁丝网钢板（带铆钉钢板 + 铁丝网反伤）
+ */
+export const STEEL_TIER = 3;
+export const WIRE_TIER = 6;
+/** 各档板子的缩放：厚板更厚，钢板更宽 */
 const BOARD_SCALE: [number, number, number][] = [
   [1, 1, 1],
-  [1, 1.2, 1.9],
-  [1.02, 1.45, 1.3],
-  [1.02, 1.45, 1.3],
+  [1, 1.15, 2.0],
+  [1, 1.15, 2.0],
+  [1.02, 1.4, 1.0],
+  [1.02, 1.45, 1.8],
+  [1.02, 1.45, 1.8],
+  [1.02, 1.45, 1.8],
 ];
 /** 铁丝网每次被拉扎掉丧尸最大生命值的比例 */
 export const WIRE_REFLECT = 0.12;
@@ -497,8 +506,11 @@ export class Level {
   private buildWindows() {
     this.boardMats = [
       new THREE.MeshStandardMaterial({ map: TX.plankTexture(0), roughness: 0.9 }),
-      new THREE.MeshStandardMaterial({ map: TX.plankTexture(1), roughness: 0.75, metalness: 0.2 }),
-      new THREE.MeshStandardMaterial({ map: TX.plankTexture(2), roughness: 0.45, metalness: 0.75 }),
+      new THREE.MeshStandardMaterial({ map: TX.plankTexture(1), roughness: 0.85 }),
+      new THREE.MeshStandardMaterial({ map: TX.plankTexture(2), roughness: 0.75, metalness: 0.2 }),
+      new THREE.MeshStandardMaterial({ map: TX.plankTexture(3), color: 0xb4c2d8, roughness: 0.5, metalness: 0.35 }),
+      new THREE.MeshStandardMaterial({ map: TX.plankTexture(4), color: 0xa8b6cc, roughness: 0.5, metalness: 0.4 }),
+      new THREE.MeshStandardMaterial({ map: TX.plankTexture(5), color: 0xc4ccd8, roughness: 0.45, metalness: 0.7 }),
     ];
     const boardGeo = new THREE.BoxGeometry(1.25, 0.15, 0.035);
     const diagGeo = new THREE.BoxGeometry(1.45, 0.15, 0.035);
@@ -555,8 +567,9 @@ export class Level {
     return n;
   }
 
+  /** 每档多拉一下，铁丝网那档耐久和带铆钉钢板一样，多的是反伤 */
   get boardMaxHp() {
-    return this.upgrades.armor + 1;
+    return Math.min(this.upgrades.armor, WIRE_TIER - 1) + 1;
   }
 
   private boardPos(w: WindowRT) {
@@ -580,7 +593,7 @@ export class Level {
       if (g.zombies.damage(z, z.maxHealth * frac, 'torso', 'trap')) return true;
     }
     // 铁丝网反伤：每拉一下都被扎
-    if (this.upgrades.armor >= 3 && this.boardCount(w) > 0) {
+    if (this.upgrades.armor >= WIRE_TIER && this.boardCount(w) > 0) {
       const hand = new THREE.Vector3(z.pos.x, z.pos.y + 1.25, z.pos.z).lerp(p, 0.5);
       g.particles.blood(hand, new THREE.Vector3(w.out[0], 0.4, w.out[1]), 6, 0.8);
       g.audio.wireScrape(hand);
@@ -593,12 +606,12 @@ export class Level {
     w.hp[i]--;
     if (w.hp[i] > 0) {
       w.boardAnim[i] = { t: 0, mode: 3 };
-      g.audio.boardRattle(p, this.upgrades.armor >= 2);
+      g.audio.boardRattle(p, this.upgrades.armor >= STEEL_TIER);
       return false;
     }
     w.present[i] = false;
     w.boardAnim[i] = { t: 0, mode: 1 };
-    if (this.upgrades.armor >= 2) {
+    if (this.upgrades.armor >= STEEL_TIER) {
       g.audio.boardRattle(p, true);
       g.particles.sparks(p, 0xffc070);
     } else {
@@ -646,7 +659,7 @@ export class Level {
     this.upgrades[id] = level;
     if (id === 'armor') {
       const max = this.boardMaxHp;
-      const mat = this.boardMats[Math.min(level, 2)];
+      const mat = this.boardMats[Math.min(level, this.boardMats.length - 1)];
       const sc = BOARD_SCALE[Math.min(level, BOARD_SCALE.length - 1)];
       for (const w of this.windows) {
         for (let i = 0; i < BOARDS; i++) {
@@ -654,7 +667,7 @@ export class Level {
           w.boards[i].scale.set(...sc);
           if (w.present[i]) w.hp[i] = max;
         }
-        if (level >= 3 && !w.wire) {
+        if (level >= WIRE_TIER && !w.wire) {
           w.wire = this.buildWire();
           w.group.add(w.wire);
         }
@@ -970,7 +983,7 @@ export class Level {
 
   private updateWindowUpgrades(w: WindowRT, dt: number) {
     const u = this.upgrades;
-    if (w.wire) w.wire.visible = u.armor >= 3 && this.boardCount(w) > 0;
+    if (w.wire) w.wire.visible = u.armor >= WIRE_TIER && this.boardCount(w) > 0;
     if (u.shock > 0) {
       const period = u.shock >= 2 ? 4 : 8;
       w.charge = Math.min(1, w.charge + dt / period);

@@ -268,7 +268,6 @@ export class Zombie {
       this.groanT = this.type === 'sprint' ? rand(1.5, 4) : rand(3, 7.5);
     }
 
-    this.model.decayFlinch(dt);
     this.model.animate(this.phase, this.type, mode, animT);
     this.sync();
   }
@@ -290,9 +289,8 @@ export class Zombie {
     return new THREE.Vector3(this.pos.x, this.pos.y + 1.65, this.pos.z);
   }
 
-  /** 受击：身子后仰 / 爆头甩头，屋里的丧尸还会被轻微击退 */
-  onHit(part: HitPart, dmg: number, dir: THREE.Vector3 | undefined, force: number) {
-    this.model.hitReact(part, clamp((dmg / this.maxHealth) * 2.5 + 0.35, 0.35, 1), Math.random() < 0.5 ? -1 : 1);
+  /** 受击：姿势保持不变，屋里的丧尸会被轻微击退 */
+  onHit(dir: THREE.Vector3 | undefined, force: number) {
     if (dir && this.inside) {
       const k = Math.min(0.16, 0.035 * force);
       const len = Math.hypot(dir.x, dir.z) || 1;
@@ -468,7 +466,7 @@ export class ZombieManager {
     if (z.health > 0) {
       // 自动机枪、电网、铁丝网打中不给分，只有击杀给分，免得挂机刷分
       if (source !== 'turret' && source !== 'trap') g.addPoints(10);
-      z.onHit(part, dmg, dir, force);
+      z.onHit(dir, force);
       g.feedback.onDamage(z, dmg, part, source, false, opts.point, opts.kind);
       return false;
     }
