@@ -30,6 +30,7 @@ export class Hud {
     wname: $('wname'),
     mag: $('mag'),
     prompt: $('prompt'),
+    promptBar: $('prompt-bar'),
     announce: $('announce'),
     annBig: $('ann-big'),
     annSmall: $('ann-small'),
@@ -133,6 +134,12 @@ export class Hud {
     this.last.prompt = text;
     this.el.prompt.textContent = text ?? '';
     this.el.prompt.classList.toggle('hidden', !text);
+  }
+
+  /** 按住 F 的进度条（null 隐藏） */
+  setPromptProgress(frac: number | null) {
+    this.el.promptBar.classList.toggle('hidden', frac === null);
+    if (frac !== null) (this.el.promptBar.firstElementChild as HTMLElement).style.width = `${Math.round(frac * 100)}%`;
   }
 
   hitmarker(kill: boolean) {

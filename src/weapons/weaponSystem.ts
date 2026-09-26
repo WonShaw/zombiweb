@@ -55,8 +55,11 @@ export class WeaponSystem {
   private drinkT = -1;
   private drinkDone: (() => void) | null = null;
   private triggerHeld = false;
+  /** 松开左键之前不开火（左键刚被别的操作用掉时） */
+  private holdFire = false;
   private burstLeft = 0;
   private sprintT = 0;
+  private carryT = 0;
   private kickV = 0;
   private swayX = 0;
   private swayY = 0;
@@ -111,7 +114,11 @@ export class WeaponSystem {
     return this.reloadT >= 0;
   }
   get busy() {
-    return this.knifeT >= 0 || this.drinkT >= 0 || this.switchT >= 0;
+    return this.knifeT >= 0 || this.drinkT >= 0 || this.switchT >= 0 || this.carrying;
+  }
+  /** 正在搬运自动机枪：不能开枪、开镜、拿刀 */
+  get carrying() {
+    return !!this.game.turrets?.carry;
   }
   get drinking() {
     return this.drinkT >= 0;
@@ -186,8 +193,14 @@ export class WeaponSystem {
     this.burstLeft = 0;
   }
 
+  /** 这次按下的左键已经被用掉了，松开前不要开火 */
+  consumeTrigger() {
+    this.holdFire = true;
+    this.burstLeft = 0;
+  }
+
   startKnife() {
-    if (this.knifeT >= 0 || this.drinkT >= 0) return;
+    if (this.knifeT >= 0 || this.drinkT >= 0 || this.carrying) return;
     this.knifeT = 0;
     this.knifeHit = false;
     this.reloadT = -1;
@@ -250,7 +263,8 @@ export class WeaponSystem {
       }
       if (inp.wasPressed('KeyV') || inp.mousePressed[1]) this.startKnife();
 
-      const trig = inp.mouseDown[0];
+      if (!inp.mouseDown[0]) this.holdFire = false;
+      const trig = inp.mouseDown[0] && !this.holdFire;
       if (!trig) this.triggerHeld = false;
       const w = this.current;
       const canShoot = !this.busy && this.reloadT < 0 && this.sprintT < 0.35 && this.cooldown <= 0;
@@ -539,6 +553,9 @@ export class WeaponSystem {
       dr = smoothstep(elapsed / 0.3) * smoothstep(this.drinkT / 0.3);
       pos.y -= 0.4 * dr;
     }
+    this.carryT += ((this.carrying ? 1 : 0) - this.carryT) * damp(10, dt);
+    pos.y -= 0.35 * this.carryT;
+    rx -= 0.5 * this.carryT;
     if (pl.dead) pos.y -= 0.5 * Math.min(1, pl.deathT);
 
     this.holder.position.copy(pos);

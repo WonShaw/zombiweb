@@ -8,8 +8,8 @@ import * as TX from '../core/textures';
 import { angleDiff, damp, rand } from '../core/util';
 
 export const TURRET = {
-  cost: 2000,
-  max: 3,
+  cost: 3000,
+  max: 4,
   ammo: 200,
   interval: 0.1, // 600 发/分
   damage: 110,
@@ -17,6 +17,8 @@ export const TURRET = {
   reload: 2.5,
   turnSpeed: 5, // 弧度/秒
   radius: 0.35, // 碰撞半径
+  carryDist: 1.4, // 搬运时虚影在玩家前方的距离
+  pickupHold: 0.8, // 按住 F 多久搬起
 };
 
 interface Turret {
@@ -38,6 +40,15 @@ interface Turret {
   barBg: THREE.Sprite;
   barFill: THREE.Sprite;
   interact: Interactable;
+  carried: boolean;
+}
+
+/** 正在搬运的机枪：turret 为 null 表示刚买的新机枪 */
+interface Carry {
+  turret: Turret | null;
+  spot: THREE.Vector3;
+  yaw: number;
+  valid: boolean;
 }
 
 const MUZZLE_Y = 1.02;
@@ -105,6 +116,9 @@ export class Turrets {
   private flashTex = TX.flashTexture();
   private barTex: THREE.Texture;
   private sound = { freq: 2300, decay: 0.22, thump: 120, vol: 0.5 };
+  carry: Carry | null = null;
+  private ghost: THREE.Group;
+  private ghostMat = new THREE.MeshBasicMaterial({ color: 0x6ee06a, transparent: true, opacity: 0.4, depthWrite: false });
 
   constructor(private game: Game) {
     // 弹药条用的白色小方块贴图，颜色由材质决定
@@ -124,37 +138,112 @@ export class Turrets {
       game.scene.add(m);
       this.tracers.push({ mesh: m, t: 0 });
     }
+
+    // 搬运时显示的半透明虚影 + 地面占位圈
+    this.ghost = buildTurretModel().group;
+    this.ghost.traverse((o) => {
+      if (o instanceof THREE.Mesh) o.material = this.ghostMat;
+    });
+    const ring = new THREE.Mesh(new THREE.RingGeometry(TURRET.radius, TURRET.radius + 0.07, 32), this.ghostMat);
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = 0.02;
+    this.ghost.add(ring);
+    this.ghost.visible = false;
+    game.scene.add(this.ghost);
   }
 
-  get canPlace() {
-    return this.list.length < TURRET.max;
+  /** 已放下的 + 正在搬运的新机枪 */
+  get count() {
+    return this.list.length + (this.carry && !this.carry.turret ? 1 : 0);
   }
 
-  /** 在玩家面前（或身边）找一个空位放下机枪 */
-  place(): boolean {
-    if (!this.canPlace) return false;
+  /** 买下新机枪：进入搬运模式，由玩家自己挑位置放 */
+  startCarryNew() {
+    this.carry = { turret: null, spot: new THREE.Vector3(), yaw: 0, valid: false };
+    this.ghost.visible = true;
+  }
+
+  /** 按住 F 把已放下的机枪搬起来 */
+  pickUp(t: Turret) {
+    if (this.carry || t.reloadT >= 0) return;
+    t.carried = true;
+    t.group.visible = false;
+    t.target = null;
+    this.carry = { turret: t, spot: new THREE.Vector3(), yaw: t.yaw, valid: false };
+    this.ghost.visible = true;
+    this.game.audio.reload(0, t.pos);
+  }
+
+  private updateCarry() {
+    const c = this.carry;
+    if (!c) return;
     const g = this.game;
     const p = g.player.pos;
     const yaw = g.player.yaw;
-    const fx = -Math.sin(yaw), fz = -Math.cos(yaw);
-    const rx = Math.cos(yaw), rz = -Math.sin(yaw);
-    const offsets: [number, number][] = [
-      [1.0, 0], [1.0, -0.8], [1.0, 0.8], [0, -1.0], [0, 1.0], [-1.0, 0], [0, 0],
-    ];
-    let spot: THREE.Vector3 | null = null;
-    for (const [f, r] of offsets) {
-      const x = p.x + fx * f + rx * r;
-      const z = p.z + fz * f + rz * r;
-      if (g.level.circleBlocked(x, z, TURRET.radius + 0.05)) continue;
-      if (this.list.some((t) => Math.hypot(t.pos.x - x, t.pos.z - z) < TURRET.radius * 2 + 0.2)) continue;
-      if (!g.level.segmentClear(p.x, p.z, x, z, 0.05)) continue;
-      spot = new THREE.Vector3(x, 0, z);
-      break;
+    const x = p.x - Math.sin(yaw) * TURRET.carryDist;
+    const z = p.z - Math.cos(yaw) * TURRET.carryDist;
+    c.spot.set(x, 0, z);
+    c.yaw = yaw;
+    c.valid =
+      !g.level.circleBlocked(x, z, TURRET.radius + 0.05) &&
+      g.level.segmentClear(p.x, p.z, x, z, 0.05) &&
+      !this.list.some((t) => !t.carried && Math.hypot(t.pos.x - x, t.pos.z - z) < TURRET.radius * 2 + 0.15);
+    this.ghost.position.copy(c.spot);
+    this.ghost.rotation.y = yaw;
+    this.ghostMat.color.set(c.valid ? 0x6ee06a : 0xff4a3a);
+    this.ghostMat.opacity = 0.32 + Math.sin(g.time * 6) * 0.08;
+
+    const inp = g.input;
+    if (inp.mousePressed[0] || inp.wasPressed('KeyF')) {
+      g.weapons.consumeTrigger();
+      this.placeCarried();
+    } else if (inp.mousePressed[2]) this.cancelCarry();
+  }
+
+  private placeCarried() {
+    const c = this.carry!;
+    const g = this.game;
+    if (!c.valid) {
+      g.audio.denied();
+      return;
     }
-    if (!spot) return false;
-    this.list.push(this.build(spot, yaw));
-    g.audio.hammer(new THREE.Vector3(spot.x, 0.8, spot.z));
-    return true;
+    if (c.turret) {
+      const t = c.turret;
+      t.pos.copy(c.spot);
+      t.group.position.copy(c.spot);
+      t.yaw = c.yaw;
+      t.pitch = 0;
+      t.head.rotation.set(0, c.yaw, 0);
+      t.interact.pos.set(c.spot.x, 1, c.spot.z);
+      t.carried = false;
+      t.group.visible = true;
+    } else {
+      this.list.push(this.build(c.spot.clone(), c.yaw));
+    }
+    this.carry = null;
+    this.ghost.visible = false;
+    g.audio.hammer(new THREE.Vector3(c.spot.x, 0.8, c.spot.z));
+  }
+
+  /** 右键取消：搬起的机枪回到原位；刚买的新机枪退还积分 */
+  cancelCarry() {
+    const c = this.carry;
+    if (!c) return;
+    if (c.turret) {
+      c.turret.carried = false;
+      c.turret.group.visible = true;
+    } else {
+      this.game.refund(TURRET.cost);
+    }
+    this.carry = null;
+    this.ghost.visible = false;
+  }
+
+  carryPrompt() {
+    const c = this.carry;
+    if (!c) return null;
+    const cancel = c.turret ? '右键取消' : '右键取消（退还积分）';
+    return c.valid ? `左键或 F 放下自动机枪 · ${cancel}` : `这里放不下 · ${cancel}`;
   }
 
   private build(pos: THREE.Vector3, yaw: number): Turret {
@@ -195,16 +284,22 @@ export class Turrets {
       flash, flashT: 0,
       lamp, barBg, barFill,
       interact: null as unknown as Interactable,
+      carried: false,
     };
     t.interact = {
       pos: new THREE.Vector3(pos.x, 1, pos.z),
       range: 1.6,
       prompt: () => {
         if (t.reloadT >= 0) return '自动机枪上弹中…';
-        if (t.ammo <= 0) return '按 F 给自动机枪上弹';
-        return `自动机枪 · 弹药 ${t.ammo}/${TURRET.ammo}（打空后才能上弹）`;
+        if (t.ammo <= 0) return '按 F 上弹 · 按住 F 搬走';
+        return `自动机枪 · 弹药 ${t.ammo}/${TURRET.ammo} · 按住 F 搬走`;
       },
       use: () => this.reload(t),
+      holdAction: {
+        time: TURRET.pickupHold,
+        enabled: () => t.reloadT < 0 && !this.carry,
+        run: () => this.pickUp(t),
+      },
     };
     head.rotation.y = yaw;
     return t;
@@ -219,6 +314,7 @@ export class Turrets {
   /** 把圆推出所有机枪（玩家和丧尸都要绕开机枪） */
   collide(p: { x: number; z: number }, r: number) {
     for (const t of this.list) {
+      if (t.carried) continue;
       const dx = p.x - t.pos.x, dz = p.z - t.pos.z;
       const min = r + TURRET.radius;
       const d2 = dx * dx + dz * dz;
@@ -305,9 +401,16 @@ export class Turrets {
     }
   }
 
+  /** 可交互（没被搬起来）的机枪 */
+  get placed() {
+    return this.list.filter((t) => !t.carried);
+  }
+
   update(dt: number) {
     const g = this.game;
+    this.updateCarry();
     for (const t of this.list) {
+      if (t.carried) continue;
       t.cooldown -= dt;
       if (t.reloadT >= 0) {
         t.reloadT -= dt;

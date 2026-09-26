@@ -10,7 +10,10 @@ import { pick } from '../core/util';
 export interface Interactable {
   pos: THREE.Vector3;
   range: number;
+  /** 按住 F 时每 0.5 秒重复触发 use（修窗） */
   hold?: boolean;
+  /** 短按 F 松开时触发 use，按住够久则触发 holdAction（机枪：短按上弹，按住搬走） */
+  holdAction?: { time: number; enabled(): boolean; run(): void };
   prompt(): string | null;
   use(): void;
 }
@@ -23,6 +26,9 @@ export class Interactables {
   private list: Interactable[] = [];
   private current: Interactable | null = null;
   private holdT = 0;
+  /** 带 holdAction 的交互：正在按住 F 的对象与已按住时长 */
+  private pressing: Interactable | null = null;
+  private pressT = 0;
   box: MysteryBox;
   private perkGlows: { sprite: THREE.Sprite; floor: THREE.Mesh; t: number }[] = [];
   repairPoints = 0;
@@ -138,11 +144,21 @@ export class Interactables {
   /** 固定的交互点 + 玩家放下的自动机枪 */
   private *candidates(): Generator<Interactable> {
     yield* this.list;
-    for (const t of this.game.turrets.list) yield t.interact;
+    for (const t of this.game.turrets.placed) yield t.interact;
   }
 
   update(dt: number) {
     const g = this.game;
+    this.box.update(dt);
+    this.updateGlows(dt);
+    // 搬运机枪时只显示放置提示，F 留给放置用
+    if (g.turrets.carry) {
+      this.current = null;
+      this.pressing = null;
+      g.hud.setPrompt(g.turrets.carryPrompt());
+      g.hud.setPromptProgress(null);
+      return;
+    }
     const p = g.player.pos;
     const fx = -Math.sin(g.player.yaw), fz = -Math.cos(g.player.yaw);
     let best: Interactable | null = null;
@@ -165,23 +181,49 @@ export class Interactables {
         }
       }
     }
-    if (best !== this.current) this.holdT = 0.3;
+    if (best !== this.current) {
+      this.holdT = 0.3;
+      this.pressing = null;
+    }
     this.current = best;
     g.hud.setPrompt(bestPrompt);
 
+    const inp = g.input;
     if (best) {
       if (best.hold) {
-        if (g.input.down('KeyF')) {
+        if (inp.down('KeyF')) {
           this.holdT += dt;
           if (this.holdT >= 0.5) {
             this.holdT = 0;
             best.use();
           }
         } else this.holdT = 0.3;
-      } else if (g.input.wasPressed('KeyF')) best.use();
+      } else if (best.holdAction) {
+        const ha = best.holdAction;
+        if (inp.wasPressed('KeyF')) {
+          this.pressing = best;
+          this.pressT = 0;
+        }
+        if (this.pressing === best) {
+          if (inp.down('KeyF')) {
+            this.pressT += dt;
+            if (ha.enabled() && this.pressT >= ha.time) {
+              this.pressing = null;
+              ha.run();
+            }
+          } else {
+            // 松开时还没按够时间，算短按
+            this.pressing = null;
+            best.use();
+          }
+        }
+      } else if (inp.wasPressed('KeyF')) best.use();
     }
+    const ha = this.pressing?.holdAction;
+    g.hud.setPromptProgress(ha && ha.enabled() && this.pressT > 0.12 ? Math.min(1, this.pressT / ha.time) : null);
+  }
 
-    this.box.update(dt);
+  private updateGlows(dt: number) {
     for (const pg of this.perkGlows) {
       pg.t += dt;
       const k = 0.85 + Math.sin(pg.t * 3) * 0.08 + (Math.random() < 0.01 ? -0.4 : 0);

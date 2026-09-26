@@ -160,6 +160,24 @@ body {
   white-space: nowrap;
 }
 
+#prompt-bar {
+  position: absolute;
+  left: 50%;
+  top: calc(50% + 128px);
+  width: 180px;
+  height: 5px;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.5);
+  border-radius: 3px;
+  overflow: hidden;
+}
+#prompt-bar i {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--gold);
+}
+
 #announce {
   position: absolute;
   left: 50%;
@@ -919,4 +937,8 @@ kbd {
 .dep.none {
   display: block;
   color: var(--muted);
+}
+.dep.pending {
+  border-color: rgba(255, 216, 74, 0.45);
+  color: var(--gold);
 }

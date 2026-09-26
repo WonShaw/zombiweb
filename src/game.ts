@@ -195,17 +195,19 @@ export class Game {
     if (this.spend(def.cost)) this.weapons.give(id, slot);
   }
 
-  /** 买一台自动机枪，放在玩家面前 / 身边的空位上。失败时返回原因 */
+  /** 买一台自动机枪：扣分后进入搬运模式，回到游戏里自己挑位置放。失败时返回原因 */
   buyTurret(): string | null {
-    if (!this.turrets.canPlace) return `最多只能放 ${TURRET.max} 台`;
-    if (this.points < TURRET.cost) {
-      this.spend(TURRET.cost);
-      return '积分不够';
-    }
-    // 先确认有地方放，再扣分
-    if (!this.turrets.place()) return '这里放不下，换个开阔点的位置';
-    this.spend(TURRET.cost);
+    if (this.turrets.carry) return '先把手上的机枪放下';
+    if (this.turrets.count >= TURRET.max) return `最多只能放 ${TURRET.max} 台`;
+    if (!this.spend(TURRET.cost)) return '积分不够';
+    this.turrets.startCarryNew();
     return null;
+  }
+
+  /** 退还积分（不受双倍积分影响，也不计入累计积分） */
+  refund(n: number) {
+    this.points += n;
+    this.hud.popup(n);
   }
 
   buyUpgrade(id: UpgradeId) {
