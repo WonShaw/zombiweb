@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { seeded } from './util';
 
 /**
- * 所有贴图都在运行时用 canvas 程序化生成：墙面、地板、木板、箱子、粉笔画、图标……
+ * 所有贴图都在运行时用 canvas 程序化生成：墙面、地板、木板、箱子、招牌、图标……
  * 不需要任何外部图片素材。
  */
 
@@ -424,63 +424,6 @@ export function boxTextures() {
   const map = tex(a.c, false);
   const em = tex(e.c, false);
   return { map, emissive: em };
-}
-
-/** 墙上的粉笔武器轮廓 */
-const SIL: Record<string, number[][][]> = {
-  pistol: [
-    [[22, 10], [74, 10], [74, 17], [52, 17], [55, 34], [42, 36], [38, 21], [22, 18], [22, 10]],
-    [[40, 21], [40, 27], [48, 27], [49, 17]],
-  ],
-  smg: [
-    [[4, 16], [20, 13], [64, 13], [64, 11], [96, 12], [96, 16], [64, 17], [64, 20], [52, 20], [50, 37], [44, 37], [44, 20], [36, 20], [32, 30], [26, 30], [27, 20], [4, 23], [4, 16]],
-  ],
-  rifle: [
-    [[0, 19], [24, 14], [68, 13], [68, 12], [100, 12], [100, 15], [68, 17], [48, 19], [46, 28], [40, 28], [39, 20], [28, 22], [3, 29], [0, 19]],
-  ],
-  shotgun: [
-    [[0, 19], [26, 14], [100, 12], [100, 17], [66, 18], [66, 21], [46, 21], [46, 18], [36, 19], [30, 23], [3, 29], [0, 19]],
-  ],
-  lmg: [
-    [[0, 16], [18, 14], [58, 12], [100, 12], [100, 15], [60, 18], [58, 25], [46, 25], [44, 19], [32, 19], [28, 27], [21, 27], [22, 19], [2, 23], [0, 16]],
-    [[80, 15], [74, 32]],
-    [[82, 15], [88, 32]],
-  ],
-};
-
-export function chalkTexture(cls: string, name: string) {
-  const W = 512;
-  const H = 256;
-  const r = seeded(name.length * 97 + name.charCodeAt(0));
-  const { c, g } = mk(W, H);
-  const key = cls === 'sniper' ? 'rifle' : cls === 'wonder' ? 'pistol' : cls;
-  const polys = SIL[key] ?? SIL.rifle;
-  const sx = (x: number) => 26 + x * 4.6;
-  const sy = (y: number) => 10 + y * 4.6;
-  g.lineCap = 'round';
-  g.lineJoin = 'round';
-  for (let pass = 0; pass < 4; pass++) {
-    g.strokeStyle = `rgba(235,235,225,${0.18 + r() * 0.15})`;
-    g.lineWidth = 3 + r() * 3;
-    for (const poly of polys) {
-      g.beginPath();
-      poly.forEach(([x, y], i) => {
-        const px = sx(x) + (r() - 0.5) * 4;
-        const py = sy(y) + (r() - 0.5) * 4;
-        if (i === 0) g.moveTo(px, py);
-        else g.lineTo(px, py);
-      });
-      g.stroke();
-    }
-  }
-  g.font = 'bold 40px "Chalkboard SE", "Comic Sans MS", sans-serif';
-  g.textAlign = 'center';
-  for (let pass = 0; pass < 3; pass++) {
-    g.fillStyle = `rgba(235,235,225,${0.3 + r() * 0.2})`;
-    g.fillText(name, W / 2 + (r() - 0.5) * 3, H - 22 + (r() - 0.5) * 3);
-  }
-  const t = tex(c, false);
-  return t;
 }
 
 /** 饮料机招牌 */

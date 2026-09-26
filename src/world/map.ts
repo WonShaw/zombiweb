@@ -31,12 +31,6 @@ export interface DoorDef {
   cost: number;
   cells: [number, number][];
 }
-export interface WallBuyDef {
-  weapon: string;
-  x: number;
-  z: number;
-  face: [number, number];
-}
 export interface PerkDef {
   perk: PerkId;
   x: number;
@@ -64,7 +58,6 @@ export interface MapDef {
   grid: Uint8Array;
   doors: DoorDef[];
   windows: [number, number][];
-  wallBuys: WallBuyDef[];
   perks: PerkDef[];
   box: BoxDef;
   lamps: LampDef[];
@@ -130,15 +123,6 @@ export function buildMap(): MapDef {
   ];
   for (const c of crates) set(c.x, c.z, T.CRATE);
 
-  const wallBuys: WallBuyDef[] = [
-    { weapon: 'olympia', x: 14, z: 20, face: [1, 0] },
-    { weapon: 'm14', x: 18, z: 17, face: [0, 1] },
-    { weapon: 'mp40', x: 14, z: 11, face: [-1, 0] },
-    { weapon: 'thompson', x: 27, z: 12, face: [1, 0] },
-    { weapon: 'trench', x: 26, z: 7, face: [0, -1] },
-    { weapon: 'bar', x: 11, z: 7, face: [0, -1] },
-  ];
-
   const perks: PerkDef[] = [
     { perk: 'jugg', x: 15, z: 12, face: [1, 0] },
     { perk: 'doubletap', x: 26, z: 12, face: [-1, 0] },
@@ -167,7 +151,6 @@ export function buildMap(): MapDef {
     grid,
     doors,
     windows,
-    wallBuys,
     perks,
     box,
     lamps,

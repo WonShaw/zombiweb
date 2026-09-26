@@ -2,11 +2,13 @@ import * as THREE from 'three';
 import type { Game } from './game';
 import { WEAPONS, CLASS_NAMES, UPGRADES, type WeaponDef, type WeaponClass, type UpgradeId } from './weapons/defs';
 import { buildGun } from './weapons/models';
+import { TURRET, buildTurretModel } from './world/turrets';
 import { clamp } from './core/util';
 
 const $ = (id: string) => document.getElementById(id)!;
 
 type Cat = WeaponClass | 'all';
+type Tab = 'weapons' | 'turret' | 'barricade';
 const CATS: Cat[] = ['all', 'pistol', 'smg', 'rifle', 'shotgun', 'lmg', 'sniper', 'launcher', 'wonder'];
 
 function statBars(d: WeaponDef): [string, number][] {
@@ -46,7 +48,8 @@ function tagsOf(d: WeaponDef) {
  */
 export class Shop {
   private thumbs = new Map<string, string>();
-  private tab: 'weapons' | 'barricade' = 'weapons';
+  private tab: Tab = 'weapons';
+  private turretMsg: { text: string; ok: boolean } | null = null;
   private cat: Cat = 'all';
   private slot = 0;
 
@@ -54,7 +57,8 @@ export class Shop {
     $('shop-tabs').addEventListener('click', (e) => {
       const b = (e.target as HTMLElement).closest<HTMLElement>('[data-tab]');
       if (!b) return;
-      this.tab = b.dataset.tab as 'weapons' | 'barricade';
+      this.tab = b.dataset.tab as Tab;
+      this.turretMsg = null;
       this.render();
     });
     $('shop-cats').addEventListener('click', (e) => {
@@ -81,12 +85,20 @@ export class Shop {
       this.game.buyUpgrade(b.dataset.upg as UpgradeId);
       this.render();
     });
+    $('shop-turret').addEventListener('click', (e) => {
+      const b = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-turret]');
+      if (!b || b.disabled) return;
+      const err = this.game.buyTurret();
+      this.turretMsg = err ? { text: err, ok: false } : { text: '已经放在你面前了，按 B 回去看看', ok: true };
+      this.render();
+    });
     $('shop-close').addEventListener('click', () => this.game.closeShop(true));
   }
 
   open() {
     if (!this.thumbs.size) this.renderThumbs();
     this.slot = this.game.weapons.cur;
+    this.turretMsg = null;
     $('shop').classList.remove('hidden');
     this.render();
   }
@@ -100,8 +112,10 @@ export class Shop {
     $('shop-points').textContent = String(g.points);
     document.querySelectorAll<HTMLElement>('#shop-tabs [data-tab]').forEach((b) => b.classList.toggle('active', b.dataset.tab === this.tab));
     $('tab-weapons').classList.toggle('hidden', this.tab !== 'weapons');
+    $('tab-turret').classList.toggle('hidden', this.tab !== 'turret');
     $('tab-barricade').classList.toggle('hidden', this.tab !== 'barricade');
     if (this.tab === 'weapons') this.renderWeapons();
+    else if (this.tab === 'turret') this.renderTurret();
     else this.renderUpgrades();
   }
 
@@ -161,6 +175,41 @@ export class Shop {
       .join('');
   }
 
+  private renderTurret() {
+    const g = this.game;
+    const list = g.turrets.list;
+    const full = list.length >= TURRET.max;
+    const poor = g.points < TURRET.cost;
+    const label = full ? `已达上限（${TURRET.max} 台）` : poor ? `${TURRET.cost} 积分` : `购买并放下 · ${TURRET.cost}`;
+    const p = g.player.pos;
+    const deployed = list.length
+      ? list
+          .map((t, i) => {
+            const d = Math.round(Math.hypot(t.pos.x - p.x, t.pos.z - p.z));
+            const status = t.reloadT >= 0 ? '上弹中' : t.ammo <= 0 ? '没子弹了，需要上弹' : `弹药 ${t.ammo} / ${TURRET.ammo}`;
+            const cls = t.ammo <= 0 && t.reloadT < 0 ? ' empty' : '';
+            const frac = t.reloadT >= 0 ? 1 - t.reloadT / TURRET.reload : t.ammo / TURRET.ammo;
+            return `<div class="dep${cls}"><b>#${i + 1}</b><span>${status}</span><i><s style="width:${Math.round(frac * 100)}%"></s></i><em>距你 ${d} 米</em></div>`;
+          })
+          .join('')
+      : '<div class="dep none">还没有部署自动机枪。</div>';
+    const msg = this.turretMsg ? `<div class="msg ${this.turretMsg.ok ? 'ok' : 'err'}">${this.turretMsg.text}</div>` : '';
+    $('shop-turret').innerHTML = `
+      <div class="card turret${poor && !full ? ' poor' : ''}">
+        <div class="thumb"><img src="${this.thumbs.get('turret') ?? ''}" alt="" /></div>
+        <div class="row"><b>自动机枪</b><span class="cls">部署装备</span></div>
+        <div class="desc">放在你脚下（优先放在面前一米处），自动转向并扫射 ${TURRET.range} 米内看得见的丧尸。
+          一次装 ${TURRET.ammo} 发，打空后要走过去按 <kbd>F</kbd> 上弹。机枪击杀 +50 分，打中不加分。</div>
+        <div class="tags"><em>${Math.round(60 / TURRET.interval)} 发/分</em><em>每发 ${TURRET.damage} 伤害</em><em>射程 ${TURRET.range} 米</em><em>上弹 ${TURRET.reload} 秒</em><em>最多 ${TURRET.max} 台</em></div>
+        <button class="buy" data-turret ${full || poor ? 'disabled' : ''}>${label}</button>
+        ${msg}
+      </div>
+      <div class="deployed">
+        <h3>已部署 <small>${list.length} / ${TURRET.max}</small></h3>
+        ${deployed}
+      </div>`;
+  }
+
   private renderUpgrades() {
     const g = this.game;
     const lv = g.level.upgrades;
@@ -212,11 +261,12 @@ export class Shop {
     const size = new THREE.Vector3();
     const center = new THREE.Vector3();
 
-    for (const d of Object.values(WEAPONS)) {
-      const m = buildGun(d.model, false);
+    const items: [string, THREE.Object3D][] = Object.values(WEAPONS).map((d) => [d.id, buildGun(d.model, false).group]);
+    items.push(['turret', buildTurretModel().group]);
+    for (const [id, model] of items) {
       const wrap = new THREE.Group();
-      m.group.rotation.y = -Math.PI / 2; // 枪口朝右
-      wrap.add(m.group);
+      model.rotation.y = -Math.PI / 2; // 枪口朝右
+      wrap.add(model);
       wrap.rotation.set(0.22, 0, 0.04);
       scene.add(wrap);
       wrap.updateMatrixWorld(true);
@@ -240,7 +290,7 @@ export class Shop {
       // WebGL 读出来是上下颠倒的
       for (let y = 0; y < H; y++) img.data.set(buf.subarray((H - 1 - y) * W * 4, (H - y) * W * 4), y * W * 4);
       ctx.putImageData(img, 0, 0);
-      this.thumbs.set(d.id, canvas.toDataURL('image/png'));
+      this.thumbs.set(id, canvas.toDataURL('image/png'));
       scene.remove(wrap);
       wrap.traverse((o) => {
         if (o instanceof THREE.Mesh) o.geometry.dispose();

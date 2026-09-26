@@ -9,6 +9,7 @@ import { WeaponSystem } from './weapons/weaponSystem';
 import { Projectiles } from './weapons/projectiles';
 import { Interactables } from './world/interactables';
 import { Powerups } from './world/powerups';
+import { Turrets, TURRET } from './world/turrets';
 import { Particles } from './fx/particles';
 import { Decals } from './fx/decals';
 import { Lightning } from './fx/lightning';
@@ -36,6 +37,7 @@ export class Game {
   particles: Particles;
   decals: Decals;
   lightning: Lightning;
+  turrets: Turrets;
   shop: Shop;
   player: Player;
   weapons: WeaponSystem;
@@ -81,6 +83,7 @@ export class Game {
     this.particles = new Particles(this.scene);
     this.decals = new Decals(this.scene);
     this.lightning = new Lightning(this.scene);
+    this.turrets = new Turrets(this);
     this.player = new Player(this);
     this.weapons = new WeaponSystem(this);
     this.zombies = new ZombieManager(this);
@@ -192,6 +195,19 @@ export class Game {
     if (this.spend(def.cost)) this.weapons.give(id, slot);
   }
 
+  /** 买一台自动机枪，放在玩家面前 / 身边的空位上。失败时返回原因 */
+  buyTurret(): string | null {
+    if (!this.turrets.canPlace) return `最多只能放 ${TURRET.max} 台`;
+    if (this.points < TURRET.cost) {
+      this.spend(TURRET.cost);
+      return '积分不够';
+    }
+    // 先确认有地方放，再扣分
+    if (!this.turrets.place()) return '这里放不下，换个开阔点的位置';
+    this.spend(TURRET.cost);
+    return null;
+  }
+
   buyUpgrade(id: UpgradeId) {
     const lv = this.level.upgrades[id];
     const next = UPGRADES[id].levels[lv];
@@ -300,6 +316,7 @@ export class Game {
     this.level.updateFlow(pl.pos.x, pl.pos.z);
     this.zombies.update(dt);
     this.projectiles.update(dt);
+    this.turrets.update(dt);
     this.powerups.update(dt);
     this.level.update(dt);
     this.particles.update(dt);

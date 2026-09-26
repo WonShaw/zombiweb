@@ -1,0 +1,370 @@
+import * as THREE from 'three';
+import type { Game } from '../game';
+import type { Zombie } from '../entities/zombies';
+import type { HitPart } from '../entities/zombieModel';
+import type { RayHit } from './level';
+import type { Interactable } from './interactables';
+import * as TX from '../core/textures';
+import { angleDiff, damp, rand } from '../core/util';
+
+export const TURRET = {
+  cost: 2000,
+  max: 3,
+  ammo: 200,
+  interval: 0.1, // 600 发/分
+  damage: 110,
+  range: 20,
+  reload: 2.5,
+  turnSpeed: 5, // 弧度/秒
+  radius: 0.35, // 碰撞半径
+};
+
+interface Turret {
+  id: number;
+  pos: THREE.Vector3;
+  group: THREE.Group;
+  head: THREE.Group;
+  muzzle: THREE.Object3D;
+  yaw: number;
+  pitch: number;
+  ammo: number;
+  cooldown: number;
+  reloadT: number;
+  target: Zombie | null;
+  retargetT: number;
+  flash: THREE.Sprite;
+  flashT: number;
+  lamp: THREE.MeshBasicMaterial;
+  barBg: THREE.Sprite;
+  barFill: THREE.Sprite;
+  interact: Interactable;
+}
+
+const MUZZLE_Y = 1.02;
+
+const TM = {
+  metal: new THREE.MeshStandardMaterial({ color: 0x2c2e32, roughness: 0.45, metalness: 0.8 }),
+  dark: new THREE.MeshStandardMaterial({ color: 0x18191b, roughness: 0.5, metalness: 0.7 }),
+  olive: new THREE.MeshStandardMaterial({ color: 0x4b5231, roughness: 0.7, metalness: 0.3 }),
+};
+
+/** 三脚架 + 可旋转的枪身（枪口朝 -z）。商店缩略图也用它 */
+export function buildTurretModel() {
+  const group = new THREE.Group();
+  const post = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.045, 0.8, 10), TM.dark);
+  post.position.y = 0.45;
+  group.add(post);
+  for (let i = 0; i < 3; i++) {
+    const a = (i / 3) * Math.PI * 2 + 0.4;
+    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.025, 0.75, 8), TM.metal);
+    leg.position.set(Math.cos(a) * 0.2, 0.33, Math.sin(a) * 0.2);
+    leg.rotation.set(Math.sin(a) * 0.55, 0, -Math.cos(a) * 0.55);
+    group.add(leg);
+    const foot = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.02, 0.07), TM.dark);
+    foot.position.set(Math.cos(a) * 0.4, 0.01, Math.sin(a) * 0.4);
+    group.add(foot);
+  }
+  const head = new THREE.Group();
+  head.position.y = MUZZLE_Y - 0.02;
+  head.rotation.order = 'YXZ';
+  group.add(head);
+  const add = (geo: THREE.BufferGeometry, m: THREE.Material, x: number, y: number, z: number) => {
+    const mesh = new THREE.Mesh(geo, m);
+    mesh.position.set(x, y, z);
+    head.add(mesh);
+    return mesh;
+  };
+  add(new THREE.BoxGeometry(0.13, 0.14, 0.46), TM.dark, 0, 0.02, 0.02);
+  const jacket = new THREE.CylinderGeometry(0.04, 0.04, 0.5, 12);
+  jacket.rotateX(Math.PI / 2);
+  add(jacket, TM.metal, 0, 0.02, -0.45);
+  for (let i = 0; i < 5; i++) add(new THREE.BoxGeometry(0.085, 0.085, 0.015), TM.dark, 0, 0.02, -0.28 - i * 0.08);
+  const barrel = new THREE.CylinderGeometry(0.022, 0.026, 0.1, 10);
+  barrel.rotateX(Math.PI / 2);
+  add(barrel, TM.dark, 0, 0.02, -0.74);
+  add(new THREE.BoxGeometry(0.14, 0.17, 0.22), TM.olive, -0.14, -0.02, 0.02);
+  add(new THREE.BoxGeometry(0.5, 0.32, 0.02), TM.olive, 0, 0.05, -0.2);
+  add(new THREE.BoxGeometry(0.03, 0.1, 0.03), TM.dark, 0.05, -0.06, 0.26);
+  add(new THREE.BoxGeometry(0.03, 0.1, 0.03), TM.dark, -0.05, -0.06, 0.26);
+  const lamp = new THREE.MeshBasicMaterial({ color: 0x3dff6a });
+  add(new THREE.SphereGeometry(0.025, 10, 8), lamp, 0, 0.11, 0.18);
+  const muzzle = new THREE.Object3D();
+  muzzle.position.set(0, 0.02, -0.8);
+  head.add(muzzle);
+  return { group, head, muzzle, lamp };
+}
+
+/** 可部署的自动机枪：自动索敌扫射，打空后需要玩家走过去按 F 上弹 */
+export class Turrets {
+  list: Turret[] = [];
+  private nextId = 1;
+  private raycaster = new THREE.Raycaster();
+  private rayHit: RayHit = { t: 0, nx: 0, ny: 0, nz: 0 };
+  private tracers: { mesh: THREE.Mesh; t: number }[] = [];
+  private tracerIdx = 0;
+  private flashTex = TX.flashTexture();
+  private barTex: THREE.Texture;
+  private sound = { freq: 2300, decay: 0.22, thump: 120, vol: 0.5 };
+
+  constructor(private game: Game) {
+    // 弹药条用的白色小方块贴图，颜色由材质决定
+    const c = document.createElement('canvas');
+    c.width = c.height = 4;
+    const g2 = c.getContext('2d')!;
+    g2.fillStyle = '#fff';
+    g2.fillRect(0, 0, 4, 4);
+    this.barTex = new THREE.CanvasTexture(c);
+
+    const tracerGeo = new THREE.BoxGeometry(0.018, 0.018, 1);
+    tracerGeo.translate(0, 0, -0.5);
+    const tracerMat = new THREE.MeshBasicMaterial({ color: 0xffd27a, transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false });
+    for (let i = 0; i < 30; i++) {
+      const m = new THREE.Mesh(tracerGeo, tracerMat);
+      m.visible = false;
+      game.scene.add(m);
+      this.tracers.push({ mesh: m, t: 0 });
+    }
+  }
+
+  get canPlace() {
+    return this.list.length < TURRET.max;
+  }
+
+  /** 在玩家面前（或身边）找一个空位放下机枪 */
+  place(): boolean {
+    if (!this.canPlace) return false;
+    const g = this.game;
+    const p = g.player.pos;
+    const yaw = g.player.yaw;
+    const fx = -Math.sin(yaw), fz = -Math.cos(yaw);
+    const rx = Math.cos(yaw), rz = -Math.sin(yaw);
+    const offsets: [number, number][] = [
+      [1.0, 0], [1.0, -0.8], [1.0, 0.8], [0, -1.0], [0, 1.0], [-1.0, 0], [0, 0],
+    ];
+    let spot: THREE.Vector3 | null = null;
+    for (const [f, r] of offsets) {
+      const x = p.x + fx * f + rx * r;
+      const z = p.z + fz * f + rz * r;
+      if (g.level.circleBlocked(x, z, TURRET.radius + 0.05)) continue;
+      if (this.list.some((t) => Math.hypot(t.pos.x - x, t.pos.z - z) < TURRET.radius * 2 + 0.2)) continue;
+      if (!g.level.segmentClear(p.x, p.z, x, z, 0.05)) continue;
+      spot = new THREE.Vector3(x, 0, z);
+      break;
+    }
+    if (!spot) return false;
+    this.list.push(this.build(spot, yaw));
+    g.audio.hammer(new THREE.Vector3(spot.x, 0.8, spot.z));
+    return true;
+  }
+
+  private build(pos: THREE.Vector3, yaw: number): Turret {
+    const g = this.game;
+    const { group, head, muzzle, lamp } = buildTurretModel();
+    group.position.copy(pos);
+    const flash = new THREE.Sprite(
+      new THREE.SpriteMaterial({ map: this.flashTex, color: 0xffd090, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }),
+    );
+    flash.scale.setScalar(0.4);
+    flash.visible = false;
+    muzzle.add(flash);
+
+    // 头顶弹药条
+    const barBg = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.barTex, color: 0x111111, transparent: true, opacity: 0.75, depthWrite: false }));
+    barBg.center.set(0, 0.5);
+    barBg.scale.set(0.62, 0.07, 1);
+    barBg.position.set(-0.31, 1.45, 0);
+    group.add(barBg);
+    const barFill = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.barTex, color: 0x6ee06a, depthWrite: false }));
+    barFill.center.set(0, 0.5);
+    barFill.scale.set(0.6, 0.05, 1);
+    barFill.position.set(-0.3, 1.45, 0.001);
+    group.add(barFill);
+
+    g.scene.add(group);
+
+    const t: Turret = {
+      id: this.nextId++,
+      pos: pos.clone(),
+      group, head, muzzle,
+      yaw, pitch: 0,
+      ammo: TURRET.ammo,
+      cooldown: 0,
+      reloadT: -1,
+      target: null,
+      retargetT: 0,
+      flash, flashT: 0,
+      lamp, barBg, barFill,
+      interact: null as unknown as Interactable,
+    };
+    t.interact = {
+      pos: new THREE.Vector3(pos.x, 1, pos.z),
+      range: 1.6,
+      prompt: () => {
+        if (t.reloadT >= 0) return '自动机枪上弹中…';
+        if (t.ammo <= 0) return '按 F 给自动机枪上弹';
+        return `自动机枪 · 弹药 ${t.ammo}/${TURRET.ammo}（打空后才能上弹）`;
+      },
+      use: () => this.reload(t),
+    };
+    head.rotation.y = yaw;
+    return t;
+  }
+
+  private reload(t: Turret) {
+    if (t.ammo > 0 || t.reloadT >= 0) return;
+    t.reloadT = TURRET.reload;
+    this.game.audio.reload(0, t.pos);
+  }
+
+  /** 把圆推出所有机枪（玩家和丧尸都要绕开机枪） */
+  collide(p: { x: number; z: number }, r: number) {
+    for (const t of this.list) {
+      const dx = p.x - t.pos.x, dz = p.z - t.pos.z;
+      const min = r + TURRET.radius;
+      const d2 = dx * dx + dz * dz;
+      if (d2 >= min * min) continue;
+      const d = Math.sqrt(d2);
+      if (d < 1e-4) {
+        p.x += min;
+        continue;
+      }
+      p.x = t.pos.x + (dx / d) * min;
+      p.z = t.pos.z + (dz / d) * min;
+    }
+  }
+
+  /** 找射程内、视线不被墙挡住的最近丧尸 */
+  private findTarget(t: Turret): Zombie | null {
+    const g = this.game;
+    const from = new THREE.Vector3(t.pos.x, MUZZLE_Y, t.pos.z);
+    let best: Zombie | null = null;
+    let bestD = TURRET.range;
+    for (const z of g.zombies.list) {
+      if (z.dead || z.pos.y < -0.6) continue;
+      const to = new THREE.Vector3(z.pos.x, z.pos.y + 1.25, z.pos.z);
+      const d = from.distanceTo(to);
+      if (d >= bestD) continue;
+      const dir = to.clone().sub(from).normalize();
+      if (g.level.raycast(from, dir, d, this.rayHit)) continue;
+      best = z;
+      bestD = d;
+    }
+    return best;
+  }
+
+  private fire(t: Turret) {
+    const g = this.game;
+    t.ammo--;
+    t.cooldown = TURRET.interval;
+    const origin = t.muzzle.getWorldPosition(new THREE.Vector3());
+    const z = t.target!;
+    const aim = new THREE.Vector3(z.pos.x, z.pos.y + 1.25, z.pos.z);
+    const dir = aim.sub(origin).normalize();
+    dir.x += rand(-0.02, 0.02);
+    dir.y += rand(-0.02, 0.02);
+    dir.z += rand(-0.02, 0.02);
+    dir.normalize();
+    const maxD = TURRET.range + 5;
+    const wall = g.level.raycast(origin, dir, maxD, this.rayHit);
+    const wallT = wall ? this.rayHit.t : maxD;
+    this.raycaster.set(origin, dir);
+    this.raycaster.far = wallT;
+    let endT = wallT;
+    let hitZombie = false;
+    for (const h of this.raycaster.intersectObjects(g.zombies.targets(), false)) {
+      const hz = h.object.userData.zombie as Zombie | undefined;
+      if (!hz || hz.dead) continue;
+      const part = h.object.userData.part as HitPart;
+      const dmg = TURRET.damage * (part === 'head' ? 2 : part === 'limb' ? 0.8 : 1);
+      g.zombies.damage(hz, dmg, part, 'turret', dir);
+      g.particles.blood(h.point, dir.clone().negate(), 6, 0.9);
+      endT = h.distance;
+      hitZombie = true;
+      break;
+    }
+    if (!hitZombie && wall) {
+      const p = origin.clone().addScaledVector(dir, wallT);
+      const n = new THREE.Vector3(this.rayHit.nx, this.rayHit.ny, this.rayHit.nz);
+      g.particles.impact(p, n, true);
+      g.decals.bulletHole(p, n);
+    }
+    // 曳光弹
+    const tr = this.tracers[this.tracerIdx];
+    this.tracerIdx = (this.tracerIdx + 1) % this.tracers.length;
+    tr.mesh.visible = true;
+    tr.t = 0.05;
+    tr.mesh.position.copy(origin);
+    tr.mesh.lookAt(origin.clone().sub(dir));
+    tr.mesh.scale.set(1, 1, Math.max(0.1, endT));
+    t.flashT = 0.04;
+    t.flash.material.rotation = Math.random() * Math.PI;
+    g.audio.shot(this.sound, origin);
+    if (t.ammo === 0) {
+      g.audio.dryFire();
+      g.hud.announce('自动机枪没子弹了', '走过去按 F 上弹');
+    }
+  }
+
+  update(dt: number) {
+    const g = this.game;
+    for (const t of this.list) {
+      t.cooldown -= dt;
+      if (t.reloadT >= 0) {
+        t.reloadT -= dt;
+        if (t.reloadT < 0) {
+          t.ammo = TURRET.ammo;
+          g.audio.reload(1, t.pos);
+        }
+      }
+      t.retargetT -= dt;
+      if (t.retargetT <= 0 || (t.target && t.target.dead)) {
+        t.retargetT = 0.2;
+        t.target = t.ammo > 0 && t.reloadT < 0 ? this.findTarget(t) : null;
+      }
+      if (t.target) {
+        const z = t.target;
+        const dx = z.pos.x - t.pos.x, dz = z.pos.z - t.pos.z;
+        const dy = z.pos.y + 1.25 - MUZZLE_Y;
+        const wantYaw = Math.atan2(-dx, -dz);
+        const wantPitch = Math.atan2(dy, Math.hypot(dx, dz));
+        const dYaw = angleDiff(t.yaw, wantYaw);
+        const step = TURRET.turnSpeed * dt;
+        t.yaw += Math.max(-step, Math.min(step, dYaw));
+        t.pitch += (wantPitch - t.pitch) * damp(10, dt);
+        if (Math.abs(dYaw) < 0.12 && t.cooldown <= 0 && t.ammo > 0 && t.reloadT < 0) {
+          t.head.rotation.set(t.pitch, t.yaw, 0);
+          t.group.updateMatrixWorld(true);
+          this.fire(t);
+        }
+      } else {
+        t.pitch += (0 - t.pitch) * damp(4, dt);
+      }
+      t.head.rotation.set(t.pitch, t.yaw, 0);
+
+      t.flashT -= dt;
+      t.flash.visible = t.flashT > 0;
+
+      // 弹药条与状态灯：空了就闪红
+      const frac = t.ammo / TURRET.ammo;
+      const empty = t.ammo <= 0 && t.reloadT < 0;
+      const blink = Math.floor(g.time * 4) % 2 === 0;
+      if (t.reloadT >= 0) {
+        const r = 1 - t.reloadT / TURRET.reload;
+        t.barFill.scale.x = 0.6 * r;
+        t.barFill.material.color.set(0x7fc8ff);
+        t.lamp.color.set(0x7fc8ff);
+      } else {
+        t.barFill.scale.x = 0.6 * Math.max(frac, 0.001);
+        t.barFill.material.color.set(frac > 0.5 ? 0x6ee06a : frac > 0.2 ? 0xffc83a : 0xff4a3a);
+        t.lamp.color.set(empty ? (blink ? 0xff2a1a : 0x220000) : 0x3dff6a);
+      }
+      t.barFill.visible = !empty;
+      t.barBg.material.color.set(empty && blink ? 0x8a0f0a : 0x111111);
+    }
+    for (const tr of this.tracers) {
+      if (!tr.mesh.visible) continue;
+      tr.t -= dt;
+      if (tr.t <= 0) tr.mesh.visible = false;
+    }
+  }
+}

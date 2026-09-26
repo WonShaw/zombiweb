@@ -100,6 +100,7 @@ export class Player {
     }
     this.pos.x += this.vel.x * dt;
     this.pos.z += this.vel.z * dt;
+    g.turrets.collide(this.pos, this.radius);
     g.level.collideCircle(this.pos, this.radius);
 
     const z = g.level.zoneAt(this.pos.x, this.pos.z);

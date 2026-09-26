@@ -36,7 +36,7 @@ export interface WeaponDef {
   move: number; // 移动速度倍率
   adsFov: number;
   sound: ShotSound;
-  cost: number; // 商店 / 墙购价格
+  cost: number; // 商店价格
   shop: boolean; // false = 神秘箱专属
   inBox: boolean;
   projectile?: { kind: 'ray' | 'rocket'; speed: number; splash: number; splashDamage: number; selfDamage?: number };

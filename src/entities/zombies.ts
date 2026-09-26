@@ -6,7 +6,7 @@ import { SILL } from '../world/level';
 import { rand, clamp, angleDiff, damp } from '../core/util';
 
 type ZState = 'rising' | 'approach' | 'tearing' | 'climbing' | 'chasing' | 'attacking' | 'dying';
-export type DamageSource = 'bullet' | 'melee' | 'explosive' | 'nuke' | 'trap';
+export type DamageSource = 'bullet' | 'melee' | 'explosive' | 'nuke' | 'trap' | 'turret';
 
 const ATTACK_DUR = 1.0;
 const ATTACK_DMG = 50;
@@ -425,11 +425,12 @@ export class ZombieManager {
     if (g.powerups.instakill > 0 && source !== 'nuke') dmg = z.health + 1;
     z.health -= dmg;
     if (z.health > 0) {
-      g.addPoints(10);
+      // 自动机枪打中不给分，只有击杀给分，免得挂机刷分
+      if (source !== 'turret') g.addPoints(10);
       return false;
     }
     if (source !== 'nuke') {
-      g.addPoints(source === 'melee' ? 130 : source === 'trap' ? 50 : part === 'head' ? 100 : 60);
+      g.addPoints(source === 'melee' ? 130 : source === 'trap' || source === 'turret' ? 50 : part === 'head' ? 100 : 60);
     }
     g.stats.kills++;
     if (part === 'head' && source === 'bullet') g.stats.headshots++;
@@ -509,9 +510,11 @@ export class ZombieManager {
         p.x -= (dx / d) * push * 0.25;
         p.z -= (dz / d) * push * 0.25;
       }
+      g.turrets.collide(z.pos, z.radius);
       g.level.collideCircle(z.pos, z.radius);
       z.sync();
     }
+    g.turrets.collide(p, g.player.radius);
     g.level.collideCircle(p, g.player.radius);
 
     for (let i = L.length - 1; i >= 0; i--) {

@@ -7,7 +7,7 @@ import type { DoorRT, WindowRT } from './level';
 import * as TX from '../core/textures';
 import { pick } from '../core/util';
 
-interface Interactable {
+export interface Interactable {
   pos: THREE.Vector3;
   range: number;
   hold?: boolean;
@@ -31,7 +31,6 @@ export class Interactables {
     const lvl = game.level;
     for (const d of lvl.doors) this.list.push(this.door(d));
     for (const w of lvl.windows) this.list.push(this.windowRepair(w));
-    for (const wb of lvl.def.wallBuys) this.list.push(this.wallBuy(wb.weapon, wb.x, wb.z, wb.face));
     for (const p of lvl.def.perks) this.list.push(this.perk(p.perk, p.x, p.z, p.face));
     this.box = new MysteryBox(game);
     this.list.push(this.box);
@@ -62,30 +61,6 @@ export class Interactables {
           this.repairPoints += 10;
           g.addPoints(10);
         }
-      },
-    };
-  }
-
-  private wallBuy(id: string, x: number, z: number, face: [number, number]): Interactable {
-    const g = this.game;
-    const def = WEAPONS[id];
-    const cost = def.cost;
-    const chalk = new THREE.Mesh(
-      new THREE.PlaneGeometry(1.3, 0.65),
-      new THREE.MeshStandardMaterial({ map: TX.chalkTexture(def.cls, def.name), transparent: true, depthWrite: false, roughness: 1 }),
-    );
-    const cx = x + 0.5 + face[0] * 0.505;
-    const cz = z + 0.5 + face[1] * 0.505;
-    chalk.position.set(cx, 1.45, cz);
-    chalk.rotation.y = Math.atan2(face[0], face[1]);
-    g.scene.add(chalk);
-    return {
-      pos: new THREE.Vector3(cx, 1.45, cz),
-      range: 1.9,
-      prompt: () => (g.weapons.has(id) ? null : `按 F 购买 ${def.name} [花费: ${cost}]`),
-      use: () => {
-        if (g.weapons.busy || g.weapons.has(id)) return;
-        if (g.spend(cost)) g.weapons.give(id);
       },
     };
   }
@@ -160,6 +135,12 @@ export class Interactables {
     };
   }
 
+  /** 固定的交互点 + 玩家放下的自动机枪 */
+  private *candidates(): Generator<Interactable> {
+    yield* this.list;
+    for (const t of this.game.turrets.list) yield t.interact;
+  }
+
   update(dt: number) {
     const g = this.game;
     const p = g.player.pos;
@@ -168,7 +149,7 @@ export class Interactables {
     let bestScore = Infinity;
     let bestPrompt: string | null = null;
     if (!g.player.dead) {
-      for (const it of this.list) {
+      for (const it of this.candidates()) {
         const dx = it.pos.x - p.x, dz = it.pos.z - p.z;
         const d = Math.hypot(dx, dz);
         if (d > it.range) continue;

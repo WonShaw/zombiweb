@@ -186,11 +186,11 @@ export class Sfx {
     this.noise(t + 0.04, s.decay * 2.2, out, { type: 'lowpass', f0: 700, f1: 140, vol: s.vol * 0.14, attack: 0.04 });
   }
 
-  /** 换弹声：0 退弹匣 1 插弹匣 2 拉栓 */
-  reload(kind: 0 | 1 | 2) {
+  /** 换弹声：0 退弹匣 1 插弹匣 2 拉栓；pos 为空时是玩家自己的枪 */
+  reload(kind: 0 | 1 | 2, pos?: THREE.Vector3) {
     if (!this.ctx) return;
     const t = this.now;
-    const out = this.out(null, 1);
+    const out = this.out(pos ? new THREE.Vector3(pos.x, 1, pos.z) : null, 1);
     if (kind === 0) {
       this.noise(t, 0.06, out, { type: 'bandpass', f0: 1800, q: 3, vol: 0.3 });
       this.tone(t, 0.04, out, { type: 'square', f0: 700, f1: 300, vol: 0.04 });

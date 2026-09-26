@@ -57,7 +57,7 @@
         </div>
         <div class="tips">
           击中丧尸 +10 · 击杀 +60 · 爆头 +100 · 刀杀 +130。弹药无限，只需换弹。<br />
-          按 B 打开商店买枪、升级路障；也可以开门、抽神秘箱、喝饮料。
+          按 B 打开商店买枪、放自动机枪、升级路障；也可以开门、抽神秘箱、喝饮料。
         </div>
         <div class="settings">
           <label>鼠标灵敏度 <input type="range" min="0.2" max="3" step="0.05" data-setting="sens" /><output></output></label>
@@ -87,12 +87,16 @@
         </header>
         <nav id="shop-tabs" class="shop-tabs">
           <button data-tab="weapons">武器</button>
+          <button data-tab="turret">自动机枪</button>
           <button data-tab="barricade">路障升级</button>
         </nav>
         <section id="tab-weapons">
           <div id="shop-loadout" class="loadout"></div>
           <div id="shop-cats" class="cats"></div>
           <div id="shop-grid" class="grid"></div>
+        </section>
+        <section id="tab-turret" class="hidden">
+          <div id="shop-turret" class="turret-panel"></div>
         </section>
         <section id="tab-barricade" class="hidden">
           <p class="upg-note">升级对所有窗户同时生效。丧尸每拽一下路障，会先触发电网，再扣木板耐久。</p>
