@@ -198,7 +198,6 @@ export class Game {
   /** 买一台自动机枪：扣分后进入搬运模式，回到游戏里自己挑位置放。失败时返回原因 */
   buyTurret(): string | null {
     if (this.turrets.carry) return '先把手上的机枪放下';
-    if (this.turrets.count >= TURRET.max) return `最多只能放 ${TURRET.max} 台`;
     if (!this.spend(TURRET.cost)) return '积分不够';
     this.turrets.startCarryNew();
     return null;

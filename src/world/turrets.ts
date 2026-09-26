@@ -8,8 +8,7 @@ import * as TX from '../core/textures';
 import { angleDiff, damp, rand } from '../core/util';
 
 export const TURRET = {
-  cost: 3000,
-  max: 4,
+  cost: 4000,
   ammo: 200,
   interval: 0.1, // 600 发/分
   damage: 110,

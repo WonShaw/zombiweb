@@ -180,15 +180,8 @@ export class Shop {
     const list = g.turrets.list;
     const carry = g.turrets.carry;
     const count = g.turrets.count;
-    const full = count >= TURRET.max;
     const poor = g.points < TURRET.cost;
-    const label = carry
-      ? '先放下手上的机枪'
-      : full
-        ? `已达上限（${TURRET.max} 台）`
-        : poor
-          ? `${TURRET.cost} 积分`
-          : `购买 · ${TURRET.cost}`;
+    const label = carry ? '先放下手上的机枪' : poor ? `${TURRET.cost} 积分` : `购买 · ${TURRET.cost}`;
     const p = g.player.pos;
     const deployed = list.length
       ? list
@@ -211,18 +204,18 @@ export class Shop {
     const deployedHtml = list.length || pending ? deployed + pending : '<div class="dep none">还没有部署自动机枪。</div>';
     const msg = this.turretMsg ? `<div class="msg ${this.turretMsg.ok ? 'ok' : 'err'}">${this.turretMsg.text}</div>` : '';
     $('shop-turret').innerHTML = `
-      <div class="card turret${poor && !full ? ' poor' : ''}">
+      <div class="card turret${poor ? ' poor' : ''}">
         <div class="thumb"><img src="${this.thumbs.get('turret') ?? ''}" alt="" /></div>
         <div class="row"><b>自动机枪</b><span class="cls">部署装备</span></div>
         <div class="desc">买下后回到游戏，面前会出现虚影，选好位置按左键或 <kbd>F</kbd> 放下（右键取消并退款）。
           自动扫射 ${TURRET.range} 米内看得见的丧尸，一次装 ${TURRET.ammo} 发，打空后走过去短按 <kbd>F</kbd> 上弹；
           按住 <kbd>F</kbd> 可以搬到别处。机枪击杀 +50 分，打中不加分。</div>
-        <div class="tags"><em>${Math.round(60 / TURRET.interval)} 发/分</em><em>每发 ${TURRET.damage} 伤害</em><em>射程 ${TURRET.range} 米</em><em>上弹 ${TURRET.reload} 秒</em><em>最多 ${TURRET.max} 台</em></div>
-        <button class="buy" data-turret ${carry || full || poor ? 'disabled' : ''}>${label}</button>
+        <div class="tags"><em>${Math.round(60 / TURRET.interval)} 发/分</em><em>每发 ${TURRET.damage} 伤害</em><em>射程 ${TURRET.range} 米</em><em>上弹 ${TURRET.reload} 秒</em><em>数量不限</em></div>
+        <button class="buy" data-turret ${carry || poor ? 'disabled' : ''}>${label}</button>
         ${msg}
       </div>
       <div class="deployed">
-        <h3>已部署 <small>${count} / ${TURRET.max}</small></h3>
+        <h3>已部署 <small>${count} 台</small></h3>
         ${deployedHtml}
       </div>`;
   }
