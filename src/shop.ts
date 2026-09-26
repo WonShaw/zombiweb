@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { Game } from './game';
 import { WEAPONS, CLASS_NAMES, UPGRADES, type WeaponDef, type WeaponClass, type UpgradeId } from './weapons/defs';
 import { buildGun } from './weapons/models';
+import { MELEE, buildMelee, type MeleeDef } from './weapons/melee';
 import { MAX_GUNS } from './weapons/weaponSystem';
 import { TURRET_KINDS, TURRET_UPGRADES, buildTurretModel, type TurretKind, type TurretUpgradeId } from './world/turrets';
 import { clamp } from './core/util';
@@ -9,7 +10,7 @@ import { clamp } from './core/util';
 const $ = (id: string) => document.getElementById(id)!;
 
 type Cat = WeaponClass | 'all';
-type Tab = 'weapons' | 'turret' | 'barricade';
+type Tab = 'weapons' | 'turret' | 'melee' | 'barricade';
 const CATS: Cat[] = ['all', 'pistol', 'smg', 'rifle', 'shotgun', 'lmg', 'sniper', 'launcher', 'wonder'];
 
 function statBars(d: WeaponDef): [string, number][] {
@@ -86,6 +87,12 @@ export class Shop {
       this.game.buyWeapon(b.dataset.buy!, this.slot);
       this.render();
     });
+    $('shop-melee').addEventListener('click', (e) => {
+      const b = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-melee]');
+      if (!b || b.disabled) return;
+      this.game.buyMelee(b.dataset.melee!);
+      this.render();
+    });
     $('shop-upgrades').addEventListener('click', (e) => {
       const b = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-upg]');
       if (!b || b.disabled) return;
@@ -128,10 +135,43 @@ export class Shop {
     document.querySelectorAll<HTMLElement>('#shop-tabs [data-tab]').forEach((b) => b.classList.toggle('active', b.dataset.tab === this.tab));
     $('tab-weapons').classList.toggle('hidden', this.tab !== 'weapons');
     $('tab-turret').classList.toggle('hidden', this.tab !== 'turret');
+    $('tab-melee').classList.toggle('hidden', this.tab !== 'melee');
     $('tab-barricade').classList.toggle('hidden', this.tab !== 'barricade');
     if (this.tab === 'weapons') this.renderWeapons();
     else if (this.tab === 'turret') this.renderTurret();
+    else if (this.tab === 'melee') this.renderMelee();
     else this.renderUpgrades();
+  }
+
+  /** 近战武器页：一次只带一把，买过的可以免费换回来 */
+  private renderMelee() {
+    const g = this.game;
+    const w = g.weapons;
+    const bar = (k: string, v: number) => `<div class="bar"><span>${k}</span><i><b style="width:${Math.round(clamp(v, 0.05, 1) * 100)}%"></b></i></div>`;
+    $('shop-melee').innerHTML = Object.values(MELEE)
+      .map((d: MeleeDef) => {
+        const equipped = w.melee.id === d.id;
+        const owned = w.meleeOwned.has(d.id);
+        const poor = !owned && g.points < d.cost;
+        const label = equipped ? '使用中' : owned ? '换上（已拥有）' : poor ? `${d.cost} 积分` : `购买 · ${d.cost}`;
+        const state = equipped ? 'owned' : poor ? 'poor' : '';
+        const tags = [
+          `轻击 ${d.light.damage}`,
+          `重击 ${d.heavy.damage}`,
+          `一次砍 ${d.heavy.targets} 只`,
+          `${d.light.range} 米`,
+          d.move >= 1 ? `移速 +${Math.round((d.move - 1) * 100)}%` : `移速 ${Math.round((d.move - 1) * 100)}%`,
+        ].map((t) => `<em>${t}</em>`).join('');
+        return `<div class="card ${state}">
+          <div class="thumb"><img src="${this.thumbs.get('melee:' + d.id) ?? ''}" alt="" /></div>
+          <div class="row"><b>${d.name}</b><span class="cls">近战</span></div>
+          <div class="desc">${d.desc}</div>
+          <div class="tags">${tags}</div>
+          <div class="bars">${bar('伤害', Math.sqrt(d.heavy.damage / 900))}${bar('攻速', 0.28 / d.light.time)}${bar('范围', (d.light.range - 1.4) / 1.3)}${bar('机动', (d.move - 0.9) / 0.23)}</div>
+          <button class="buy" data-melee="${d.id}" ${equipped || poor ? 'disabled' : ''}>${label}</button>
+        </div>`;
+      })
+      .join('');
   }
 
   private renderWeapons() {
@@ -335,6 +375,19 @@ export class Shop {
       const ctx = canvas.getContext('2d')!;
       const queue: [string, () => THREE.Object3D][] = Object.values(WEAPONS).map((d) => [d.id, () => buildGun(d.model, false).group]);
       queue.push(['turret', () => buildTurretModel('light').group]);
+      // 近战武器：刀身沿 +y，先转成沿 -z，和枪一样摆成刀尖朝右
+      for (const id of Object.keys(MELEE)) {
+        queue.push([
+          'melee:' + id,
+          () => {
+            const m = buildMelee(id, false);
+            m.rotation.x = -Math.PI / 2;
+            const w = new THREE.Group();
+            w.add(m);
+            return w;
+          },
+        ]);
+      }
       queue.push(['turret-heavy', () => buildTurretModel('heavy').group]);
       this.thumbRig = {
         rt, scene, ctx, queue,

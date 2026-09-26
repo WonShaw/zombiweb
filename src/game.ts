@@ -19,6 +19,7 @@ import { Silhouettes } from './fx/silhouettes';
 import { Hud } from './hud';
 import { Shop } from './shop';
 import { WEAPONS, UPGRADES, type UpgradeId } from './weapons/defs';
+import { MELEE } from './weapons/melee';
 import { lerp } from './core/util';
 
 type State = 'menu' | 'playing' | 'paused' | 'shop' | 'over';
@@ -209,6 +210,14 @@ export class Game {
     const def = WEAPONS[id];
     if (!def || !def.shop || this.weapons.has(id)) return;
     if (this.spend(def.cost)) this.weapons.give(id, slot);
+  }
+
+  /** 买近战武器；已经买过的直接换上 */
+  buyMelee(id: string) {
+    const def = MELEE[id];
+    const w = this.weapons;
+    if (!def || w.melee.id === id) return;
+    if (w.meleeOwned.has(id) || this.spend(def.cost)) w.equipMelee(id);
   }
 
   /** 买一台机枪（自动 / 重型）：扣分后进入搬运模式，回到游戏里自己挑位置放。失败时返回原因 */

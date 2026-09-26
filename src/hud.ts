@@ -28,6 +28,7 @@ export class Hud {
     popups: $('popups'),
     round: $('round'),
     wname: $('wname'),
+    weapon: $('weapon'),
     loadout: $('loadout'),
     mag: $('mag'),
     prompt: $('prompt'),
@@ -217,25 +218,30 @@ export class Hud {
       this.el.points.textContent = String(g.points);
     }
     const w = g.weapons.current;
-    // 右下角的武器列表：当前这把高亮
+    // 右下角的武器列表：当前这把高亮，最后一行是近战武器
     const ws = g.weapons;
-    const key = ws.owned.map((o) => o.def.id).join(',') + '|' + ws.cur;
+    const melee = ws.meleeOut;
+    const key = ws.owned.map((o) => o.def.id).join(',') + '|' + ws.cur + '|' + ws.melee.id + '|' + melee;
     if (key !== L.loadout) {
       L.loadout = key;
       this.el.loadout.innerHTML =
-        ws.owned.map((o, i) => `<div class="lo${i === ws.cur ? ' cur' : ''}"><kbd>${i + 1}</kbd>${o.def.name}</div>`).join('') +
-        (ws.owned.length > 1 ? '<div class="lo-hint">Q / E 切换 · 按住 G 出售</div>' : '');
+        ws.owned.map((o, i) => `<div class="lo${!melee && i === ws.cur ? ' cur' : ''}"><kbd>${i + 1}</kbd>${o.def.name}</div>`).join('') +
+        `<div class="lo${melee ? ' cur' : ''}"><kbd>V</kbd>${ws.melee.name}</div>` +
+        `<div class="lo-hint">Q / E 切换${ws.owned.length > 1 ? ' · 按住 G 出售' : ''}</div>`;
     }
-    if (w.def.name !== L.wname) {
-      L.wname = w.def.name;
-      this.el.wname.textContent = w.def.name;
+    const name = melee ? ws.melee.name : w.def.name;
+    if (name !== L.wname) {
+      L.wname = name;
+      this.el.wname.textContent = name;
     }
-    if (w.mag !== L.mag) {
-      L.mag = w.mag;
-      this.el.mag.textContent = String(w.mag);
-      this.el.mag.classList.toggle('low', w.mag === 0 || (w.def.mag > 2 && w.mag <= Math.ceil(w.def.mag * 0.25)));
+    const mag = melee ? -2 : w.mag;
+    if (mag !== L.mag) {
+      L.mag = mag;
+      this.el.weapon.classList.toggle('melee', melee);
+      this.el.mag.textContent = melee ? '左键轻击 · 右键重击' : String(w.mag);
+      this.el.mag.classList.toggle('low', !melee && (w.mag === 0 || (w.def.mag > 2 && w.mag <= Math.ceil(w.def.mag * 0.25))));
     }
-    const needReload = w.mag <= Math.ceil(w.def.mag * 0.25) && w.def.mag > 2 && !g.weapons.reloading;
+    const needReload = !melee && w.mag <= Math.ceil(w.def.mag * 0.25) && w.def.mag > 2 && !g.weapons.reloading;
     this.el.reloadHint.textContent = needReload ? '按 R 换弹' : '';
 
     // 准星：随散布张开，开镜/冲刺时隐藏
@@ -243,7 +249,7 @@ export class Hud {
     const px = (g.weapons.spreadNow * (window.innerHeight / 2)) / Math.tan(THREE.MathUtils.degToRad(cam.fov / 2));
     const gap = Math.min(80, 5 + px);
     this.el.cross.style.setProperty('--gap', `${gap.toFixed(1)}px`);
-    this.el.cross.style.opacity = String(Math.max(0, 1 - g.weapons.adsT * 2.5) * (g.player.sprinting || g.weapons.busy ? 0 : 1));
+    this.el.cross.style.opacity = String(Math.max(0, 1 - g.weapons.adsT * 2.5) * (g.player.sprinting || (g.weapons.busy && !g.weapons.swinging) ? 0 : 1));
 
     this.hitT -= dt;
     this.el.hit.style.opacity = this.hitT > 0 ? '1' : '0';

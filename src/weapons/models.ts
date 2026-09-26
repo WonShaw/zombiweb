@@ -1179,27 +1179,6 @@ export function buildGun(model: string, withArms: boolean): GunModel {
   return buildGun(model, true);
 }
 
-export function buildKnife() {
-  const g = new THREE.Group();
-  // 刀身 + 血槽
-  side(g, [[-0.05, 0.012], [-0.17, 0.012], [-0.215, 0.002, -0.2, 0.012], [-0.17, -0.01], [-0.05, -0.012]], 0.0045, M.blade, 0, 0.0012);
-  box(g, 0.0048, 0.0025, 0.1, 0, 0.004, -0.11, M.dark);
-  // 护手、皮革环握柄、柄头
-  rbox(g, 0.012, 0.042, 0.008, 0, 0.0, -0.046, M.bright, 0.002);
-  const h: [number, number][] = [[0, -0.042]];
-  for (let i = 0; i < 9; i++) {
-    const z = -0.042 + i * 0.0095;
-    h.push([0.0118, z], [0.0128, z + 0.002], [0.0128, z + 0.0075], [0.0118, z + 0.0095]);
-  }
-  h.push([0, 0.0435]);
-  lathe(g, h, 0, 0, M.leather, 16);
-  lathe(g, [[0, 0.043], [0.013, 0.044], [0.014, 0.05], [0.01, 0.058], [0, 0.06]], 0, 0, M.bright, 16);
-  box(g, 0.055, 0.075, 0.085, 0, -0.005, 0.01, M.skin);
-  limb(g, V(0.01, -0.02, 0.06), V(0.12, -0.2, 0.45), 0.075, M.sleeve);
-  finalize(g);
-  return g;
-}
-
 export function buildBottle() {
   const g = new THREE.Group();
   const glass = new THREE.MeshStandardMaterial({ color: 0xff3020, roughness: 0.15, metalness: 0.1, emissive: 0x401008 });

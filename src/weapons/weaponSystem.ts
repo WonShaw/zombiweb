@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { WEAPONS, type WeaponDef } from './defs';
-import { buildGun, buildKnife, buildBottle, type GunModel } from './models';
+import { buildGun, buildBottle, type GunModel } from './models';
+import { MELEE, DEFAULT_MELEE, MELEE_ANIMS, HAND_IDLE, SHOULDER, buildMelee, buildSleeve, type MeleeDef, type MeleeAttack, type MeleeAnim, type MeleeKey } from './melee';
 import type { Game } from '../game';
 import type { HitPart } from '../entities/zombieModel';
 import type { Zombie } from '../entities/zombies';
@@ -47,7 +48,22 @@ export class WeaponSystem {
   adsT = 0;
   vmRoot = new THREE.Group();
   private holder = new THREE.Group();
-  private knifeModel: THREE.Group;
+  /** 当前装备的近战武器、已经拥有的近战武器 */
+  melee: MeleeDef = MELEE[DEFAULT_MELEE];
+  meleeOwned = new Set<string>([DEFAULT_MELEE]);
+  /** 手上拿的是近战武器 */
+  meleeOut = false;
+  /** 近战手臂：袖子从肩膀拉到手，手腕上是武器 */
+  private meleeRoot = new THREE.Group();
+  private meleeSleeve: THREE.Group;
+  private meleeWrist = new THREE.Group();
+  private meleeModel: THREE.Group | null = null;
+  private meleeModels = new Map<string, THREE.Group>();
+  /** 正在进行的近战攻击：t 是进度 0..1 */
+  private swing: { atk: MeleeAttack; anim: MeleeAnim; t: number; hit: boolean; heavy: boolean } | null = null;
+  /** 轻击左右交替 */
+  private slashFlip = false;
+  private switchToMelee = false;
   private bottle: { group: THREE.Group; glass: THREE.MeshStandardMaterial };
   private flash: THREE.Mesh;
   private flashT = 0;
@@ -61,8 +77,6 @@ export class WeaponSystem {
   private switchT = -1;
   private switchTo = -1;
   private swapped = false;
-  private knifeT = -1;
-  private knifeHit = false;
   private drinkT = -1;
   private drinkDone: (() => void) | null = null;
   private triggerHeld = false;
@@ -109,9 +123,11 @@ export class WeaponSystem {
     this.flash = new THREE.Mesh(new THREE.PlaneGeometry(0.16, 0.16), flashMat);
     this.flash.visible = false;
 
-    this.knifeModel = buildKnife();
-    this.knifeModel.visible = false;
-    this.vmRoot.add(this.knifeModel);
+    this.meleeRoot.visible = false;
+    this.vmRoot.add(this.meleeRoot);
+    this.meleeSleeve = buildSleeve();
+    this.meleeRoot.add(this.meleeSleeve, this.meleeWrist);
+    this.equipMelee(DEFAULT_MELEE);
     this.bottle = buildBottle();
     this.bottle.group.visible = false;
     this.vmRoot.add(this.bottle.group);
@@ -129,7 +145,11 @@ export class WeaponSystem {
     return this.reloadT >= 0;
   }
   get busy() {
-    return this.knifeT >= 0 || this.drinkT >= 0 || this.switchT >= 0 || this.carrying;
+    return this.swing !== null || this.drinkT >= 0 || this.switchT >= 0 || this.carrying;
+  }
+  /** 正在挥近战武器 */
+  get swinging() {
+    return this.swing !== null;
   }
   /** 正在搬运自动机枪：不能开枪、开镜、拿刀 */
   get carrying() {
@@ -139,13 +159,15 @@ export class WeaponSystem {
     return this.drinkT >= 0;
   }
   get canSprint() {
-    return this.knifeT < 0 && this.drinkT < 0;
+    return this.swing === null && this.drinkT < 0;
   }
   get moveMult() {
+    if (this.meleeOut) return this.melee.move;
     return this.current?.def.move ?? 1;
   }
   /** 当前散布，HUD 准星用 */
   get spreadNow() {
+    if (this.meleeOut) return 0;
     const d = this.current.def;
     const pl = this.game.player;
     return lerp(d.hipSpread, d.adsSpread, this.adsT) * (1 + (pl.speedNow / 6) * 0.9) * (pl.onGround ? 1 : 2) + this.bloom;
@@ -177,6 +199,8 @@ export class WeaponSystem {
       this.owned[idx] = w;
     }
     this.cur = idx;
+    this.meleeOut = false;
+    this.swing = null;
     this.showCurrent();
     // 从下方抬起
     this.switchT = SWITCH_HALF;
@@ -213,8 +237,26 @@ export class WeaponSystem {
   }
 
   private showCurrent() {
-    this.owned.forEach((o, i) => (o.model.group.visible = i === this.cur));
+    this.owned.forEach((o, i) => (o.model.group.visible = !this.meleeOut && i === this.cur));
     this.current.model.muzzle.add(this.flash);
+    this.meleeRoot.visible = this.meleeOut;
+  }
+
+  /** 装备一把近战武器（商店里买下或切换） */
+  equipMelee(id: string) {
+    const def = MELEE[id];
+    if (!def) return;
+    this.meleeOwned.add(id);
+    this.melee = def;
+    if (this.meleeModel) this.meleeWrist.remove(this.meleeModel);
+    let m = this.meleeModels.get(id);
+    if (!m) {
+      m = buildMelee(id, true);
+      this.meleeModels.set(id, m);
+    }
+    this.meleeModel = m;
+    this.meleeWrist.add(m);
+    this.swing = null;
   }
 
   private startReload() {
@@ -226,8 +268,21 @@ export class WeaponSystem {
   }
 
   private beginSwitch(i: number) {
-    if (i === this.cur || i < 0 || i >= this.owned.length || this.busy) return;
+    if ((i === this.cur && !this.meleeOut) || i < 0 || i >= this.owned.length || this.busy) return;
+    this.switchToMelee = false;
     this.switchTo = i;
+    this.switchT = 0;
+    this.swapped = false;
+    this.stopAim();
+    this.reloadT = -1;
+    this.burstLeft = 0;
+  }
+
+  /** 拿出近战武器 */
+  private beginSwitchMelee() {
+    if (this.meleeOut || this.busy) return;
+    this.switchToMelee = true;
+    this.switchTo = this.cur;
     this.switchT = 0;
     this.swapped = false;
     this.stopAim();
@@ -251,6 +306,10 @@ export class WeaponSystem {
     }
     if (this.sellLock) {
       this.sellPrompt = null;
+      return;
+    }
+    if (this.meleeOut) {
+      this.sellPrompt = { text: '近战武器不能出售（可以在商店里换别的）', frac: null };
       return;
     }
     if (this.owned.length <= 1) {
@@ -286,12 +345,16 @@ export class WeaponSystem {
     this.burstLeft = 0;
   }
 
-  startKnife() {
-    if (this.knifeT >= 0 || this.drinkT >= 0 || this.carrying) return;
-    this.knifeT = 0;
-    this.knifeHit = false;
-    this.reloadT = -1;
-    this.game.audio.knifeSwing();
+  /** 挥一下近战武器：heavy = 右键重击 */
+  private startSwing(heavy: boolean) {
+    const atk = heavy ? this.melee.heavy : this.melee.light;
+    let anim = atk.anim;
+    if (anim === 'slash') {
+      anim = this.slashFlip ? 'slashR' : 'slash';
+      this.slashFlip = !this.slashFlip;
+    }
+    this.swing = { atk, anim, t: 0, hit: false, heavy };
+    this.game.audio.knifeSwing(heavy);
   }
 
   drink(color: string, done: () => void) {
@@ -319,19 +382,21 @@ export class WeaponSystem {
           this.drinkDone = null;
         }
       }
-      if (this.knifeT >= 0) {
-        this.knifeT += dt;
-        if (!this.knifeHit && this.knifeT > 0.13) {
-          this.knifeHit = true;
-          this.knifeStrike();
+      if (this.swing) {
+        const sw = this.swing;
+        sw.t += dt / sw.atk.time;
+        if (!sw.hit && sw.t >= MELEE_ANIMS[sw.anim].hit) {
+          sw.hit = true;
+          this.meleeHit(sw.atk, sw.heavy);
         }
-        if (this.knifeT > 0.5) this.knifeT = -1;
+        if (sw.t >= 1) this.swing = null;
       }
       if (this.switchT >= 0) {
         this.switchT += dt;
         if (!this.swapped && this.switchT >= SWITCH_HALF) {
           this.swapped = true;
           this.cur = this.switchTo;
+          this.meleeOut = this.switchToMelee;
           this.showCurrent();
         }
         if (this.switchT >= SWITCH_HALF * 2) this.switchT = -1;
@@ -341,24 +406,37 @@ export class WeaponSystem {
       const busy = this.busy;
       this.updateAim(dt);
       // 带光学镜的枪换弹时要放下镜子
-      const wantAds = this.aimOn && !busy && !pl.sprinting && !(this.current.def.scope && this.reloadT >= 0);
+      const wantAds = this.aimOn && !this.meleeOut && !busy && !pl.sprinting && !(this.current.def.scope && this.reloadT >= 0);
       this.adsT += ((wantAds ? 1 : 0) - this.adsT) * damp(13, dt);
       this.sprintT += ((pl.sprinting ? 1 : 0) - this.sprintT) * damp(10, dt);
 
       if (!busy) {
-        if (inp.wasPressed('KeyR')) this.startReload();
+        if (inp.wasPressed('KeyR') && !this.meleeOut) this.startReload();
         for (let i = 0; i < MAX_GUNS; i++) if (inp.wasPressed(`Digit${i + 1}`)) this.beginSwitch(i);
-        // Q 上一把、E 下一把（循环），滚轮同理
-        const n = this.owned.length;
-        if (n > 1) {
-          if (inp.wasPressed('KeyE') || inp.wheel > 0) this.beginSwitch((this.cur + 1) % n);
-          else if (inp.wasPressed('KeyQ') || inp.wheel < 0) this.beginSwitch((this.cur - 1 + n) % n);
+        // V / 5 拿出近战武器，再按一次收回到枪
+        if (inp.wasPressed('KeyV') || inp.wasPressed('Digit5')) {
+          if (this.meleeOut) this.beginSwitch(this.cur);
+          else this.beginSwitchMelee();
         }
+        // Q 上一把、E 下一把（枪 + 近战武器循环），滚轮同理
+        const n = this.owned.length;
+        const at = this.meleeOut ? n : this.cur;
+        const go = (k: number) => (k === n ? this.beginSwitchMelee() : this.beginSwitch(k));
+        if (inp.wasPressed('KeyE') || inp.wheel > 0) go((at + 1) % (n + 1));
+        else if (inp.wasPressed('KeyQ') || inp.wheel < 0) go((at + n) % (n + 1));
       }
       this.updateSell(dt);
-      if (inp.wasPressed('KeyV') || inp.mousePressed[1]) this.startKnife();
 
       if (!inp.mouseDown[0]) this.holdFire = false;
+      if (this.meleeOut) {
+        // 近战：左键轻击、右键重击，按住连续出招
+        if (!this.busy) {
+          if (inp.mouseDown[0] && !this.holdFire) this.startSwing(false);
+          else if (inp.mouseDown[2]) this.startSwing(true);
+        }
+        this.updateViewmodel(dt);
+        return;
+      }
       const trig = inp.mouseDown[0] && !this.holdFire;
       if (!trig) this.triggerHeld = false;
       const w = this.current;
@@ -394,7 +472,7 @@ export class WeaponSystem {
    */
   private updateAim(dt: number) {
     const inp = this.game.input;
-    if (this.carrying) {
+    if (this.carrying || this.meleeOut) {
       this.stopAim();
       return;
     }
@@ -583,31 +661,70 @@ export class WeaponSystem {
     g.audio.lightning(from);
   }
 
-  private knifeStrike() {
+  /** 近战命中判定：面前扇形内最近的几只；准星正对的那只打到头算爆头（×1.5） */
+  private meleeHit(atk: MeleeAttack, heavy: boolean) {
     const g = this.game;
-    const p = g.player.pos;
-    const fx = -Math.sin(g.player.yaw), fz = -Math.cos(g.player.yaw);
-    let best: Zombie | null = null;
-    let bestD = 1.75;
+    const pl = g.player;
+    const p = pl.pos;
+    const gy = pl.groundY;
+    const fx = -Math.sin(pl.yaw), fz = -Math.cos(pl.yaw);
+    const cosArc = Math.cos(atk.arc);
+    const cands: [Zombie, number][] = [];
     for (const z of g.zombies.list) {
-      if (z.dead || z.state === 'rising' || z.state === 'approach') continue;
+      if (z.dead || z.state === 'rising' || z.state === 'approach' || z.state === 'scaling') continue;
+      if (Math.abs(z.pos.y - gy) > 1.3) continue;
       const dx = z.pos.x - p.x, dz = z.pos.z - p.z;
       const d = Math.hypot(dx, dz);
-      if (d > bestD || Math.abs(z.pos.y - g.player.groundY) > 1.2) continue;
-      if (d > 0.5 && (dx * fx + dz * fz) / d < 0.55) continue;
+      if (d > atk.range + z.radius) continue;
+      if (d > 0.45 && (dx * fx + dz * fz) / d < cosArc) continue;
       // 隔着墙砍不到（窗户可以）
-      const gy = g.player.groundY;
-      if (d > 0.5 && !g.level.segmentClear(p.x, p.z, z.pos.x - dx / d * 0.4, z.pos.z - dz / d * 0.4, 0.05, gy, z.pos.y) && z.state !== 'tearing' && z.state !== 'attacking') continue;
-      best = z;
-      bestD = d;
+      const through = z.state === 'tearing' || z.state === 'attacking';
+      if (d > 0.5 && !through && !g.level.segmentClear(p.x, p.z, z.pos.x - (dx / d) * 0.4, z.pos.z - (dz / d) * 0.4, 0.05, gy, z.pos.y)) continue;
+      cands.push([z, d]);
     }
-    if (!best) return;
-    const hp = new THREE.Vector3(best.pos.x, best.pos.y + 1.3, best.pos.z);
+    cands.sort((a, b) => a[1] - b[1]);
+    const cam = g.camera;
+    const o = cam.getWorldPosition(this.tmpO);
+    const look = cam.getWorldDirection(this.tmpD);
+    this.raycaster.set(o, look);
+    this.raycaster.near = 0;
+    this.raycaster.far = atk.range + 0.6;
+    const aimed = this.raycaster.intersectObjects(g.zombies.targets(), false).find((h) => !(h.object.userData.zombie as Zombie).dead);
     const dir = new THREE.Vector3(fx, 0, fz);
-    const killed = g.zombies.damage(best, 150, 'torso', 'melee', dir, { point: hp, force: 1.8 });
-    g.particles.blood(hp, dir.clone().negate(), 14, 1.2);
-    g.audio.fleshHit(hp, true);
-    g.hud.hitmarker(killed);
+    let kill = false;
+    let last: THREE.Vector3 | null = null;
+    for (const [z] of cands.slice(0, atk.targets)) {
+      const head = !!aimed && aimed.object.userData.zombie === z && aimed.object.userData.part === 'head';
+      const pt = head ? aimed!.point.clone() : new THREE.Vector3(z.pos.x - fx * z.radius, z.pos.y + 1.2, z.pos.z - fz * z.radius);
+      if (g.zombies.damage(z, atk.damage * (head ? 1.5 : 1), head ? 'head' : 'torso', 'melee', dir, { point: pt, force: atk.force })) kill = true;
+      g.particles.blood(pt, dir.clone().negate(), heavy ? 18 : 12, 1.2);
+      last = pt;
+    }
+    if (last) {
+      g.audio.fleshHit(last, heavy);
+      g.hud.hitmarker(kill);
+      g.stats.hits++;
+      pl.shakeFor(heavy ? 0.12 : 0.05);
+    } else if (g.level.raycast(o, look, atk.range, this.rayHit)) {
+      // 砍到墙上：溅火星
+      const hp = o.clone().addScaledVector(look, this.rayHit.t);
+      g.particles.impact(hp, new THREE.Vector3(this.rayHit.nx, this.rayHit.ny, this.rayHit.nz), true);
+      g.audio.dryFire();
+    }
+  }
+
+  /** 近战手臂当前的姿势：待机，或者按攻击进度在关键帧之间平滑插值 */
+  private meleePose() {
+    const idle: MeleeKey = { t: 0, hand: HAND_IDLE, wrist: this.melee.idle };
+    const sw = this.swing;
+    if (!sw) return idle;
+    const keys = [idle, ...MELEE_ANIMS[sw.anim].keys, { ...idle, t: 1 }];
+    let k = 0;
+    while (k < keys.length - 2 && sw.t > keys[k + 1].t) k++;
+    const a = keys[k], b = keys[k + 1];
+    const u = smoothstep((sw.t - a.t) / Math.max(1e-4, b.t - a.t));
+    const mix = (x: number[], y: number[]) => x.map((v, i) => lerp(v, y[i], u)) as [number, number, number];
+    return { t: sw.t, hand: mix(a.hand, b.hand), wrist: mix(a.wrist, b.wrist) };
   }
 
   private updateViewmodel(dt: number) {
@@ -667,13 +784,6 @@ export class WeaponSystem {
       pos.y -= 0.3 * l;
       rx -= 0.6 * l;
     }
-    let kn = 0;
-    if (this.knifeT >= 0) {
-      kn = Math.sin(clamp(this.knifeT / 0.5, 0, 1) * Math.PI);
-      pos.y -= 0.14 * kn;
-      pos.x += 0.06 * kn;
-      rz -= 0.3 * kn;
-    }
     let dr = 0;
     if (this.drinkT >= 0) {
       const elapsed = 2.1 - this.drinkT;
@@ -688,13 +798,22 @@ export class WeaponSystem {
     this.holder.position.copy(pos);
     this.holder.rotation.set(rx, ry, rz);
 
-    // 刀：从右下方向前刺
-    this.knifeModel.visible = this.knifeT >= 0;
-    if (this.knifeT >= 0) {
-      const t = clamp(this.knifeT / 0.5, 0, 1);
-      const stab = t < 0.3 ? t / 0.3 : 1 - (t - 0.3) / 0.7;
-      this.knifeModel.position.set(lerp(0.22, 0.02, stab), lerp(-0.25, -0.07, stab), lerp(-0.18, -0.42, stab));
-      this.knifeModel.rotation.set(lerp(0.3, -0.1, stab), lerp(0.5, 0.1, stab), lerp(-0.6, -1.3, stab));
+    // 近战手臂：跟枪一样的晃动 / 换武器 / 冲刺偏移，再叠上挥砍姿势
+    if (this.meleeOut) {
+      const pose = this.meleePose();
+      const off = _off.copy(pos).sub(hip);
+      const hand = _hand.set(...pose.hand).add(off);
+      hand.x += 0.05 * s;
+      hand.y -= 0.05 * s;
+      this.meleeWrist.position.copy(hand);
+      this.meleeWrist.rotation.set(pose.wrist[0] + 0.3 * s, pose.wrist[1], pose.wrist[2] - 0.4 * s + rz);
+      // 袖子从肩膀拉到手
+      const sh = _sh.set(...SHOULDER).addScaledVector(off, 0.5);
+      const d = _dir.subVectors(hand, sh);
+      const len = d.length();
+      this.meleeSleeve.position.copy(sh);
+      this.meleeSleeve.quaternion.setFromUnitVectors(_zAxis, d.divideScalar(len));
+      this.meleeSleeve.scale.set(1, 1, len + 0.03);
     }
 
     // 饮料瓶：举到嘴边
@@ -720,6 +839,11 @@ export class WeaponSystem {
   }
 }
 
+const _off = new THREE.Vector3();
+const _hand = new THREE.Vector3();
+const _sh = new THREE.Vector3();
+const _dir = new THREE.Vector3();
+const _zAxis = new THREE.Vector3(0, 0, 1);
 const _r = new THREE.Vector3();
 const _u = new THREE.Vector3();
 const UP = new THREE.Vector3(0, 1, 0);

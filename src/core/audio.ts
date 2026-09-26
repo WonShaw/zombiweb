@@ -208,9 +208,11 @@ export class Sfx {
     this.noise(this.now, 0.035, this.out(null), { type: 'highpass', f0: 3000, vol: 0.25 });
   }
 
-  knifeSwing() {
+  /** 挥刀的破空声：重击更低沉、更长 */
+  knifeSwing(heavy = false) {
     if (!this.ctx) return;
-    this.noise(this.now, 0.22, this.out(null), { type: 'bandpass', f0: 500, f1: 2600, q: 1.5, vol: 0.28, attack: 0.06 });
+    if (heavy) this.noise(this.now + 0.12, 0.32, this.out(null), { type: 'bandpass', f0: 300, f1: 1600, q: 1.3, vol: 0.34, attack: 0.1 });
+    else this.noise(this.now, 0.22, this.out(null), { type: 'bandpass', f0: 500, f1: 2600, q: 1.5, vol: 0.28, attack: 0.06 });
   }
 
   fleshHit(pos: THREE.Vector3, heavy = false) {
