@@ -40,10 +40,13 @@ export const TIERS: Record<ZombieTier, {
   super: { name: '超精英丧尸', desc: '铁面具的巨汉：血极厚、冲刺、一爪很疼', health: 2500, damage: 75, speed: 4.2, gait: 'sprint', tear: 0.7, bonus: 100, radius: 0.33 },
 };
 
-/** 各回合三种丧尸的比例：第 3 轮开始出精英，第 7 轮开始出超精英 */
+/**
+ * 各回合三种丧尸的比例：前 4 轮全是普通丧尸；第 5 轮开始出精英（每轮 +5%，最多 50%）；
+ * 第 10 轮开始出超精英（每轮 +4%，最多 30%）
+ */
 export function tierMix(r: number) {
-  const sup = clamp((r - 6) * 0.05, 0, 0.35);
-  const elite = clamp((r - 2) * 0.08, 0, 0.55);
+  const sup = clamp((r - 9) * 0.04, 0, 0.3);
+  const elite = clamp((r - 4) * 0.05, 0, 0.5);
   return { normal: 1 - sup - elite, elite, super: sup };
 }
 function tierFor(r: number): ZombieTier {
