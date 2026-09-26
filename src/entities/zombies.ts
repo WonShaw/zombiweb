@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { ZombieModel, type HitPart, type SpeedType } from './zombieModel';
+import { ZombieModel, type HitPart, type SpeedType, type ZombieTier } from './zombieModel';
 import type { Game } from '../game';
 import type { WindowRT } from '../world/level';
 import { SILL } from '../world/level';
@@ -17,7 +17,40 @@ type ZState = 'rising' | 'approach' | 'tearing' | 'climbing' | 'chasing' | 'atta
 export type DamageSource = 'bullet' | 'melee' | 'explosive' | 'nuke' | 'trap' | 'turret';
 
 const ATTACK_DUR = 1.0;
-const ATTACK_DMG = 50;
+
+/**
+ * 三种丧尸。同一种丧尸的血量、攻击、移动速度、拆板速度都是固定的，不随回合变强；
+ * 回合越高只是数量越多、精英和超精英的比例越高。
+ */
+export const TIERS: Record<ZombieTier, {
+  name: string;
+  desc: string;
+  health: number;
+  damage: number;
+  speed: number;
+  gait: SpeedType;
+  /** 拽一下路障的间隔（秒） */
+  tear: number;
+  /** 击杀额外加分 */
+  bonus: number;
+  radius: number;
+}> = {
+  normal: { name: '普通丧尸', desc: '', health: 150, damage: 35, speed: 1.2, gait: 'walk', tear: 1.4, bonus: 0, radius: 0.28 },
+  elite: { name: '精英丧尸', desc: '戴钢盔的士兵：血更厚、会跑、拆板更快', health: 700, damage: 50, speed: 2.7, gait: 'run', tear: 1.0, bonus: 40, radius: 0.3 },
+  super: { name: '超精英丧尸', desc: '铁面具的巨汉：血极厚、冲刺、一爪很疼', health: 2500, damage: 75, speed: 4.2, gait: 'sprint', tear: 0.7, bonus: 100, radius: 0.33 },
+};
+
+/** 各回合三种丧尸的比例：第 3 轮开始出精英，第 7 轮开始出超精英 */
+export function tierMix(r: number) {
+  const sup = clamp((r - 6) * 0.05, 0, 0.35);
+  const elite = clamp((r - 2) * 0.08, 0, 0.55);
+  return { normal: 1 - sup - elite, elite, super: sup };
+}
+function tierFor(r: number): ZombieTier {
+  const m = tierMix(r);
+  const x = Math.random();
+  return x < m.super ? 'super' : x < m.super + m.elite ? 'elite' : 'normal';
+}
 
 export class Zombie {
   model: ZombieModel;
@@ -31,7 +64,8 @@ export class Zombie {
   dead = false;
   remove = false;
   nukeT = -1;
-  radius = 0.28;
+  radius: number;
+  type: SpeedType;
   private phase = rand(0, 6);
   private groanT = rand(1, 4);
   private steerT = 0;
@@ -52,13 +86,17 @@ export class Zombie {
     private game: Game,
     public win: WindowRT,
     spawn: THREE.Vector3,
-    health: number,
-    public type: SpeedType,
+    public tier: ZombieTier,
   ) {
-    this.health = health;
-    this.maxHealth = health;
-    this.speed = type === 'walk' ? rand(1.0, 1.35) : type === 'run' ? rand(2.4, 2.9) : rand(4.2, 4.8);
-    this.model = new ZombieModel(this, type === 'sprint');
+    const t = TIERS[tier];
+    this.health = t.health;
+    this.maxHealth = t.health;
+    this.speed = t.speed;
+    this.type = t.gait;
+    this.radius = t.radius;
+    if (tier === 'super') this.pitch *= 0.72;
+    else if (tier === 'elite') this.pitch *= 0.88;
+    this.model = new ZombieModel(this, tier);
     this.model.root.rotation.order = 'YXZ';
     this.pos.copy(spawn);
     this.pos.y = -1.7;
@@ -75,7 +113,7 @@ export class Zombie {
     return this.state === 'chasing' || this.state === 'attacking' && this.returnState === 'chasing';
   }
   get tearInterval() {
-    return this.type === 'walk' ? 1.4 : this.type === 'run' ? 1.1 : 0.8;
+    return TIERS[this.tier].tear;
   }
 
   private setState(s: ZState) {
@@ -253,7 +291,7 @@ export class Zombie {
           this.attackHit = true;
           g.audio.zombieSwipe(this.headPos());
           const reach = this.returnState === 'tearing' ? 2.15 : 1.6;
-          if (pDist < reach && !g.player.dead) g.player.damage(ATTACK_DMG, this.pos);
+          if (pDist < reach && !g.player.dead) g.player.damage(TIERS[this.tier].damage, this.pos);
         }
         if (this.st >= ATTACK_DUR) this.setState(this.returnState);
         break;
@@ -365,17 +403,6 @@ export function zombieCount(r: number) {
   const table = [6, 8, 13, 18, 24];
   return r <= 5 ? table[r - 1] : 24 + (r - 5) * 4;
 }
-export function zombieHealth(r: number) {
-  return r <= 9 ? 150 + 100 * (r - 1) : Math.round(950 * Math.pow(1.1, r - 9));
-}
-function speedFor(r: number): SpeedType {
-  const pSprint = clamp((r - 5) * 0.12, 0, 0.85);
-  const pRun = clamp((r - 2) * 0.25, 0, 1) * (1 - pSprint);
-  const x = Math.random();
-  if (x < pSprint) return 'sprint';
-  if (x < pSprint + pRun) return 'run';
-  return 'walk';
-}
 
 export class ZombieManager {
   list: Zombie[] = [];
@@ -383,7 +410,8 @@ export class ZombieManager {
   round = 0;
   private spawnT = 0;
   private interval = 2;
-  private health = 150;
+  /** 已经出现过的丧尸种类（第一次出现时提示） */
+  private seenTiers = new Set<ZombieTier>();
   private maxAlive = 24;
   private hitMeshes: THREE.Mesh[] = [];
   private dirty = true;
@@ -395,7 +423,6 @@ export class ZombieManager {
   beginRound(r: number) {
     this.round = r;
     this.toSpawn = zombieCount(r);
-    this.health = zombieHealth(r);
     this.interval = Math.max(0.35, 2.2 * Math.pow(0.93, r - 1));
     this.spawnT = 0.8;
     this.dropsThisRound = 0;
@@ -444,7 +471,13 @@ export class ZombieManager {
   private spawnOne() {
     const w = this.pickWindow();
     if (!w) return;
-    const z = new Zombie(this.game, w, this.spawnPoint(w), this.health, speedFor(this.round));
+    const tier = tierFor(this.round);
+    const z = new Zombie(this.game, w, this.spawnPoint(w), tier);
+    // 第一次出现精英 / 超精英时提示一下
+    if (tier !== 'normal' && !this.seenTiers.has(tier)) {
+      this.seenTiers.add(tier);
+      this.game.hud.announce(`${TIERS[tier].name}出现了`, TIERS[tier].desc);
+    }
     this.list.push(z);
     this.dirty = true;
   }
@@ -474,7 +507,8 @@ export class ZombieManager {
       return false;
     }
     if (source !== 'nuke') {
-      g.addPoints(source === 'melee' ? 130 : source === 'trap' || source === 'turret' ? 50 : part === 'head' ? 100 : 60);
+      const base = source === 'melee' ? 130 : source === 'trap' || source === 'turret' ? 50 : part === 'head' ? 100 : 60;
+      g.addPoints(base + TIERS[z.tier].bonus);
     }
     g.stats.kills++;
     if (part === 'head' && source === 'bullet') g.stats.headshots++;

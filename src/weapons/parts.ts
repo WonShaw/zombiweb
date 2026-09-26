@@ -5,7 +5,7 @@ import { gunWoodTextures, gunMetalTextures } from '../core/textures';
 
 /**
  * 枪模零件库：材质、几何工具（侧面轮廓挤出、圆角方块、回转体）、常用零件（准星照门、握把、扳机护圈、弹匣）、
- * 手和袖子，以及把整把枪按材质合并成少量网格的 finalize。
+ * 袖子，以及把整把枪按材质合并成少量网格的 finalize。
  * 坐标约定同 models.ts：枪口朝 -z，x 向右，y 向上，单位米。
  */
 
@@ -47,10 +47,8 @@ export const M = {
   olive: matte(0x525a36, 0.72, 0.2),
   leather: matte(0x3a2616, 0.75),
   hole: new THREE.MeshBasicMaterial({ color: 0x040404 }),
-  skin: new THREE.MeshStandardMaterial({ color: 0x9a6c4e, roughness: 0.78 }),
-  glove: matte(0x4a3627, 0.82),
-  sleeve: matte(0x4a5532, 0.95),
-  cuff: matte(0x3a4327, 0.95),
+  skin: new THREE.MeshStandardMaterial({ color: 0x8f6448, roughness: 0.85 }),
+  sleeve: new THREE.MeshStandardMaterial({ color: 0x46512f, roughness: 0.95 }),
   rayBody: metal(0x8a9a90, 0.3, 0.75),
   rayRed: new THREE.MeshStandardMaterial({ color: 0xb02a1e, roughness: 0.35, metalness: 0.35 }),
   rayGlow: new THREE.MeshBasicMaterial({ color: 0x5dff72 }),
@@ -380,86 +378,16 @@ export function cartridge(g: THREE.Object3D, x: number, y: number, z: number, le
   lathe(g, [[0, z - len / 2], [r * 0.55, z - len / 2 + len * 0.1], [r * 0.9, z - len * 0.18]], x, y, M.copper, 10);
 }
 
-// ---------- 手和袖子 ----------
+// ---------- 手臂 ----------
 
-/**
- * 握住竖直握把的手（手枪握把、垂直前握把、弹匣）。c = 握把中心（中指高度），angle = 握把后倾角。
- * s = 1 右手（手背在 +x），s = -1 左手（手背在 -x）。trigger = 食指伸向扳机。
- * 返回手腕位置。
- */
-export function gripHand(g: THREE.Object3D, c: THREE.Vector3, angle: number, s: 1 | -1, trigger: boolean, gw = 0.03) {
-  const h = new THREE.Group();
-  h.position.copy(c);
-  h.rotation.x = -angle;
-  g.add(h);
-  const e = gw / 2 + 0.009; // 手指离握把中心的距离
-  // 手背（露指手套）和掌根
-  rbox(h, 0.022, 0.07, 0.056, s * (e + 0.004), -0.008, 0.008, M.glove, 0.0105);
-  rbox(h, 0.036, 0.062, 0.022, s * 0.006, -0.01, 0.028, M.glove, 0.0105);
-  // 中指、无名指、小指：绕过握把前面，指尖到另一侧；手背前沿一排指关节
-  const rows: [number, number][] = trigger ? [[0, 1], [-0.018, 0.97], [-0.035, 0.86]] : [[0.02, 1], [0.002, 1], [-0.016, 0.97], [-0.033, 0.86]];
-  for (const [y, k] of rows) {
-    sphere(h, 0.0078 * k, s * (e + 0.004), y, -0.019, M.glove, 10);
-    rbox(h, (gw + 0.016) * k, 0.0165, 0.017, s * 0.004, y, -0.027, M.skin, 0.0068);
-    rbox(h, 0.016, 0.0162, 0.026 * k, -s * (e - 0.002), y, -0.013, M.skin, 0.0068);
-  }
-  if (trigger) {
-    // 食指顺着侧面伸进扳机护圈
-    rbox(h, 0.016, 0.016, 0.036, s * (e - 0.002), 0.022, -0.032, M.skin, 0.0068);
-    rbox(h, 0.02, 0.0152, 0.014, s * (e - 0.012), 0.02, -0.052, M.skin, 0.0062);
-  }
-  // 拇指搭在另一侧上方
-  rbox(h, 0.02, 0.03, 0.03, -s * (e - 0.006), 0.018, 0.024, M.glove, 0.0099);
-  rbox(h, 0.017, 0.018, 0.042, -s * e, 0.032, -0.008, M.skin, 0.0075);
-  return V(s * 0.012, -0.034, 0.05).applyEuler(h.rotation).add(c);
-}
+const ZAXIS = new THREE.Vector3(0, 0, 1);
 
-/** 托住护木的左手：c = 护木中心，hw/hh = 护木半宽/半高。返回手腕位置 */
-export function supportHand(g: THREE.Object3D, c: THREE.Vector3, hw = 0.022, hh = 0.02) {
-  const h = new THREE.Group();
-  h.position.copy(c);
-  h.rotation.z = -0.12;
-  g.add(h);
-  // 手掌托在下面，右下沿一排指关节
-  rbox(h, hw * 2 + 0.01, 0.022, 0.072, -0.004, -hh - 0.011, 0.002, M.glove, 0.0105);
-  for (let i = 0; i < 4; i++) sphere(h, 0.0076, hw + 0.004, -hh - 0.006, -0.027 + i * 0.0178, M.glove, 10);
-  // 四指从右侧包上来，指尖扣在上沿
-  for (let i = 0; i < 4; i++) {
-    const z = -0.027 + i * 0.0178;
-    const k = i === 3 ? 0.85 : 1;
-    rbox(h, 0.016, hh * 1.3 * k + 0.008, 0.0168, hw + 0.008, -hh * 0.25, z, M.skin, 0.0068);
-    rbox(h, 0.016, 0.014, 0.016, hw + 0.002, hh * 0.75 * k, z, M.skin, 0.0065);
-  }
-  // 拇指顺着左侧向前
-  rbox(h, 0.025, 0.028, 0.032, -hw - 0.008, -hh * 0.6, 0.022, M.glove, 0.0105);
-  rbox(h, 0.017, 0.017, 0.05, -hw - 0.008, -hh * 0.15, -0.018, M.skin, 0.0075);
-  return V(-hw * 0.6, -hh - 0.022, 0.045).applyEuler(h.rotation).add(c);
-}
-
-/** 手枪双手持握：左手包住右手手指。c = 右手握把中心 */
-export function cupHand(g: THREE.Object3D, c: THREE.Vector3, angle: number, gw = 0.03) {
-  const h = new THREE.Group();
-  h.position.copy(c);
-  h.rotation.x = -angle;
-  g.add(h);
-  const e = gw / 2 + 0.009;
-  rbox(h, 0.024, 0.064, 0.06, -(e + 0.014), -0.018, -0.008, M.glove, 0.0105);
-  for (const [y, k] of [[-0.006, 1], [-0.024, 0.97], [-0.041, 0.88]] as [number, number][]) {
-    sphere(h, 0.0078 * k, -(e + 0.012), y, -0.037, M.glove, 10);
-    rbox(h, (gw + 0.036) * k, 0.0165, 0.017, -0.004, y, -0.045, M.skin, 0.0068);
-    rbox(h, 0.016, 0.016, 0.022, e + 0.008, y, -0.032, M.skin, 0.0068);
-  }
-  rbox(h, 0.017, 0.018, 0.048, -(e + 0.002), 0.03, -0.04, M.skin, 0.0075);
-  return V(-(e + 0.01), -0.05, 0.02).applyEuler(h.rotation).add(c);
-}
-
-/** 从手腕伸出屏幕外的前臂：皮肤手腕 + 袖口 + 袖子 */
-export function arm(g: THREE.Object3D, wrist: THREE.Vector3, dir: THREE.Vector3) {
-  const d = dir.clone().normalize();
-  const cuffStart = wrist.clone().addScaledVector(d, 0.02);
-  rod(g, wrist.clone().addScaledVector(d, -0.012), cuffStart, 0.021, M.skin, 0.023);
-  rod(g, cuffStart, cuffStart.clone().addScaledVector(d, 0.03), 0.034, M.cuff, 0.035, 14);
-  rod(g, cuffStart.clone().addScaledVector(d, 0.028), wrist.clone().addScaledVector(d, 0.6), 0.036, M.sleeve, 0.05, 14);
+/** 两点之间的方条（袖子） */
+export function limb(g: THREE.Object3D, a: THREE.Vector3, b: THREE.Vector3, thick: number, m: THREE.Material) {
+  const mesh = add(g, new THREE.BoxGeometry(thick, thick, a.distanceTo(b)), m);
+  mesh.position.copy(a).add(b).multiplyScalar(0.5);
+  mesh.quaternion.setFromUnitVectors(ZAXIS, b.clone().sub(a).normalize());
+  return mesh;
 }
 
 // ---------- 合并 ----------

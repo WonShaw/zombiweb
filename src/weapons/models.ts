@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import {
   M, V, side, plate, box, rbox, lathe, latheX, latheY, cylZ, cylX, cylY, sphere, ringZ, rod, tube, arcBand,
   bore, barrel, screws, frontSight, rearSight, rearPeep, bead, grip, triggerGuard, mag, slots, cartridge,
-  gripHand, supportHand, cupHand, arm, finalize,
+  limb, finalize,
 } from './parts';
 
 /**
@@ -16,20 +16,13 @@ export interface GunModel {
   sightY: number;
 }
 
-type LeftHand =
-  | { kind: 'support'; c: THREE.Vector3; hw: number; hh: number }
-  | { kind: 'grip'; c: THREE.Vector3; angle: number; gw?: number }
-  | { kind: 'cup' };
-
 interface Info {
   muzzle: [number, number, number];
   sightY: number;
-  /** 右手握把中心（中指高度）与握把后倾角 */
+  /** 右手（握把）位置 */
   right: THREE.Vector3;
-  grip: number;
-  /** 握把宽度 */
-  gw?: number;
-  left: LeftHand;
+  /** 左手位置；'cup' = 手枪双手握，贴在右手旁边 */
+  left: THREE.Vector3 | 'cup';
 }
 
 type Builder = (g: THREE.Group) => Info;
@@ -75,7 +68,7 @@ const BUILDERS: Record<string, Builder> = {
     cylX(g, 0.0036, 0.004, -0.0155, 0.014, -0.043, M.dark, 12);
     frontSight(g, -0.15, 0.0545, 0.061);
     rearSight(g, 0.03, 0.0545, 0.061, M.dark, 0.02);
-    return { muzzle: [0, 0.036, -0.168], sightY: 0.061, right: V(0, -0.03, 0.041), grip: 0.21, gw: 0.032, left: { kind: 'cup' } };
+    return { muzzle: [0, 0.036, -0.168], sightY: 0.061, right: V(0, -0.03, 0.041), left: 'cup' };
   },
 
   revolver(g) {
@@ -104,7 +97,7 @@ const BUILDERS: Record<string, Builder> = {
     triggerGuard(g, 0.02, -0.014, 0.009, -0.02);
     frontSight(g, -0.19, 0.0575, 0.07);
     rearSight(g, 0.03, 0.064, 0.07, M.dark, 0.014);
-    return { muzzle: [0, by, -0.206], sightY: 0.07, right: V(0, -0.026, 0.05), grip: 0.3, gw: 0.034, left: { kind: 'cup' } };
+    return { muzzle: [0, by, -0.206], sightY: 0.07, right: V(0, -0.026, 0.05), left: 'cup' };
   },
 
   c96(g) {
@@ -129,7 +122,7 @@ const BUILDERS: Record<string, Builder> = {
     }
     frontSight(g, -0.212, 0.052, 0.066);
     rearSight(g, -0.08, 0.058, 0.066, M.dark, 0.018);
-    return { muzzle: [0, by, -0.225], sightY: 0.066, right: gc, grip: 0.36, left: { kind: 'cup' } };
+    return { muzzle: [0, by, -0.225], sightY: 0.066, right: gc, left: 'cup' };
   },
 
   mp40(g) {
@@ -157,7 +150,7 @@ const BUILDERS: Record<string, Builder> = {
     side(g, [[0.228, 0.032], [0.242, 0.032], [0.246, -0.032], [0.232, -0.032]], 0.046, M.blued, 0, 0.003);
     frontSight(g, -0.333, by + 0.0095, 0.064, { hood: true });
     rearSight(g, 0.004, by + 0.019, 0.064, M.dark, 0.018);
-    return { muzzle: [0, by, -0.35], sightY: 0.064, right: gc, grip: 0.22, left: { kind: 'grip', c: V(0, -0.075, -0.13), angle: 0, gw: 0.026 } };
+    return { muzzle: [0, by, -0.35], sightY: 0.064, right: gc, left: V(0, -0.075, -0.13) };
   },
 
   thompson(g) {
@@ -193,7 +186,7 @@ const BUILDERS: Record<string, Builder> = {
     side(g, [[0.307, 0.036], [0.314, 0.036], [0.314, -0.063], [0.307, -0.063]], 0.038, M.dark, 0, 0.002);
     frontSight(g, -0.302, by + 0.0095, 0.07);
     rearPeep(g, 0.07, 0.057, 0.07);
-    return { muzzle: [0, by, -0.35], sightY: 0.07, right: gc, grip: 0.26, left: { kind: 'grip', c: fc, angle: -0.08 } };
+    return { muzzle: [0, by, -0.35], sightY: 0.07, right: gc, left: fc };
   },
 
   ppsh(g) {
@@ -217,7 +210,7 @@ const BUILDERS: Record<string, Builder> = {
     triggerGuard(g, 0.04, -0.018, -0.012, -0.034);
     frontSight(g, -0.318, by + 0.0195, 0.072, { hood: true });
     rearSight(g, 0.034, 0.059, 0.072, M.dark, 0.018);
-    return { muzzle: [0, by, -0.37], sightY: 0.072, right: V(0, -0.03, 0.074), grip: 0.5, gw: 0.042, left: { kind: 'support', c: V(0, 0.009, -0.12), hw: 0.021, hh: 0.014 } };
+    return { muzzle: [0, by, -0.37], sightY: 0.072, right: V(0, -0.03, 0.074), left: V(0, -0.017, -0.12) };
   },
 
   type100(g) {
@@ -237,7 +230,7 @@ const BUILDERS: Record<string, Builder> = {
     triggerGuard(g, 0.03, -0.012, -0.011, -0.034);
     frontSight(g, -0.345, by + 0.0205, 0.066, { ears: true });
     rearSight(g, 0.02, by + 0.017, 0.066, M.dark, 0.016);
-    return { muzzle: [0, by, -0.395], sightY: 0.066, right: V(0, -0.028, 0.072), grip: 0.45, gw: 0.038, left: { kind: 'support', c: V(0, 0.01, -0.13), hw: 0.019, hh: 0.012 } };
+    return { muzzle: [0, by, -0.395], sightY: 0.066, right: V(0, -0.028, 0.072), left: V(0, -0.014, -0.13) };
   },
 
   mp5k(g) {
@@ -267,7 +260,7 @@ const BUILDERS: Record<string, Builder> = {
     frontSight(g, -0.148, 0.064, 0.084);
     ringZ(g, 0.0075, 0.0016, 0, 0.0815, -0.148, M.anod);
     rearPeep(g, 0.075, 0.064, 0.084);
-    return { muzzle: [0, by, -0.195], sightY: 0.084, right: gc, grip: 0.3, gw: 0.032, left: { kind: 'grip', c: fc, angle: -0.06, gw: 0.028 } };
+    return { muzzle: [0, by, -0.195], sightY: 0.084, right: gc, left: fc };
   },
 
   ak74u(g) {
@@ -288,7 +281,7 @@ const BUILDERS: Record<string, Builder> = {
     side(g, [[0.292, 0.046], [0.308, 0.046], [0.31, -0.058], [0.294, -0.058]], 0.046, M.blued, 0, 0.003);
     frontSight(g, -0.262, 0.058, 0.076, { ears: true });
     rearSight(g, -0.086, 0.065, 0.076, M.blued, 0.016);
-    return { muzzle: [0, by, -0.38], sightY: 0.076, right: gc, grip: 0.3, left: { kind: 'support', c: V(0, 0.03, -0.19), hw: 0.021, hh: 0.015 } };
+    return { muzzle: [0, by, -0.38], sightY: 0.076, right: gc, left: V(0, 0.003, -0.19) };
   },
 
   m14(g) {
@@ -313,7 +306,7 @@ const BUILDERS: Record<string, Builder> = {
     triggerGuard(g, 0.04, -0.02, -0.008, -0.034, M.park);
     frontSight(g, -0.6, by + 0.0112, 0.078, { ears: true });
     rearPeep(g, 0.052, 0.06, 0.078);
-    return { muzzle: [0, by, -0.63], sightY: 0.078, right: V(0, -0.034, 0.08), grip: 0.45, gw: 0.042, left: { kind: 'support', c: V(0, 0.02, -0.25), hw: 0.021, hh: 0.018 } };
+    return { muzzle: [0, by, -0.63], sightY: 0.078, right: V(0, -0.034, 0.08), left: V(0, -0.01, -0.25) };
   },
 
   gewehr43(g) {
@@ -335,7 +328,7 @@ const BUILDERS: Record<string, Builder> = {
     rearSight(g, -0.1, 0.06, 0.074, M.blued, 0.018);
     mag(g, -0.058, 0.024, 0.068, 0.04, 0.026, M.blued);
     triggerGuard(g, 0.045, -0.018, -0.01, -0.036);
-    return { muzzle: [0, by, -0.605], sightY: 0.074, right: V(0, -0.034, 0.085), grip: 0.45, gw: 0.042, left: { kind: 'support', c: V(0, 0.02, -0.2), hw: 0.021, hh: 0.016 } };
+    return { muzzle: [0, by, -0.605], sightY: 0.074, right: V(0, -0.034, 0.085), left: V(0, -0.008, -0.2) };
   },
 
   m16(g) {
@@ -371,7 +364,7 @@ const BUILDERS: Record<string, Builder> = {
     triggerGuard(g, 0.055, 0.013, -0.004, -0.028, M.anod);
     frontSight(g, -0.345, 0.085, 0.1, { ears: true });
     rearPeep(g, 0.075, 0.089, 0.1);
-    return { muzzle: [0, by, -0.535], sightY: 0.1, right: gc, grip: 0.35, gw: 0.028, left: { kind: 'support', c: V(0, 0.03, -0.23), hw: 0.025, hh: 0.024 } };
+    return { muzzle: [0, by, -0.535], sightY: 0.1, right: gc, left: V(0, -0.006, -0.23) };
   },
 
   stg44(g) {
@@ -398,7 +391,7 @@ const BUILDERS: Record<string, Builder> = {
     side(g, [[0.318, 0.027], [0.326, 0.027], [0.328, -0.071], [0.32, -0.075]], 0.039, M.blued, 0, 0.002);
     frontSight(g, -0.425, by + 0.018, 0.076, { hood: true });
     rearSight(g, -0.14, 0.062, 0.076, M.blued, 0.018);
-    return { muzzle: [0, by, -0.445], sightY: 0.076, right: gc, grip: 0.28, left: { kind: 'support', c: V(0, 0.04, -0.23), hw: 0.019, hh: 0.02 } };
+    return { muzzle: [0, by, -0.445], sightY: 0.076, right: gc, left: V(0, 0.008, -0.23) };
   },
 
   bar(g) {
@@ -429,7 +422,7 @@ const BUILDERS: Record<string, Builder> = {
     rearPeep(g, 0.03, 0.058, 0.078);
     side(g, [[0.05, 0.05], [0.07, 0.05], [0.32, 0.035], [0.331, 0.035], [0.336, -0.07], [0.322, -0.074], [0.16, -0.035], [0.1, -0.02], [0.05, 0.0]], 0.04, M.wood, 0, 0.004);
     side(g, [[0.33, 0.036], [0.338, 0.036], [0.342, -0.071], [0.334, -0.074]], 0.041, M.park, 0, 0.002);
-    return { muzzle: [0, by, -0.725], sightY: 0.078, right: gc, grip: 0.35, left: { kind: 'support', c: V(0, 0.022, -0.33), hw: 0.024, hh: 0.027 } };
+    return { muzzle: [0, by, -0.725], sightY: 0.078, right: gc, left: V(0, -0.017, -0.33) };
   },
 
   fg42(g) {
@@ -456,7 +449,7 @@ const BUILDERS: Record<string, Builder> = {
     rbox(g, 0.036, 0.012, 0.014, 0, 0.018, -0.475, M.park, 0.003);
     frontSight(g, -0.49, by + 0.009, 0.088);
     rearPeep(g, -0.02, 0.056, 0.088);
-    return { muzzle: [0, by, -0.56], sightY: 0.088, right: gc, grip: 0.55, left: { kind: 'support', c: V(0, 0.03, -0.24), hw: 0.02, hh: 0.02 } };
+    return { muzzle: [0, by, -0.56], sightY: 0.088, right: gc, left: V(0, -0.002, -0.24) };
   },
 
   galil(g) {
@@ -477,7 +470,7 @@ const BUILDERS: Record<string, Builder> = {
     side(g, [[0.298, 0.052], [0.314, 0.052], [0.314, -0.056], [0.298, -0.056]], 0.04, M.poly, 0, 0.004);
     frontSight(g, -0.314, 0.062, 0.083, { ears: true });
     rearPeep(g, 0.086, 0.063, 0.083);
-    return { muzzle: [0, by, -0.46], sightY: 0.083, right: gc, grip: 0.3, left: { kind: 'support', c: V(0, 0.034, -0.22), hw: 0.022, hh: 0.023 } };
+    return { muzzle: [0, by, -0.46], sightY: 0.083, right: gc, left: V(0, -0.001, -0.22) };
   },
 
   doublebarrel(g) {
@@ -494,7 +487,7 @@ const BUILDERS: Record<string, Builder> = {
     rbox(g, 0.005, 0.016, 0.004, 0, -0.018, 0.012, M.bright, 0.0015, 0.3);
     side(g, [[0.02, 0.04], [0.05, 0.036], [0.29, 0.022], [0.3, 0.022], [0.305, -0.086], [0.29, -0.09], [0.14, -0.045], [0.09, -0.04, 0.11, -0.044], [0.058, -0.052], [0.042, -0.03], [0.02, -0.012]], 0.04, M.wood, 0, 0.005);
     side(g, [[-0.1, 0.02], [-0.3, 0.02], [-0.31, 0.012], [-0.3, -0.002], [-0.12, -0.004], [-0.1, 0.0]], 0.044, M.wood, 0, 0.005);
-    return { muzzle: [0, by, -0.585], sightY: 0.056, right: V(0, -0.032, 0.066), grip: 0.45, gw: 0.04, left: { kind: 'support', c: V(0, 0.01, -0.2), hw: 0.022, hh: 0.014 } };
+    return { muzzle: [0, by, -0.585], sightY: 0.056, right: V(0, -0.032, 0.066), left: V(0, -0.016, -0.2) };
   },
 
   trench(g) {
@@ -519,7 +512,7 @@ const BUILDERS: Record<string, Builder> = {
     side(g, [[0.31, 0.028], [0.318, 0.028], [0.322, -0.081], [0.314, -0.085]], 0.041, M.blued, 0, 0.002);
     triggerGuard(g, 0.028, -0.014, -0.006, -0.032);
     bead(g, -0.515, by + 0.0205, 0.07);
-    return { muzzle: [0, by, -0.565], sightY: 0.07, right: V(0, -0.03, 0.066), grip: 0.5, gw: 0.04, left: { kind: 'support', c: V(0, 0.013, -0.23), hw: 0.0215, hh: 0.0215 } };
+    return { muzzle: [0, by, -0.565], sightY: 0.07, right: V(0, -0.03, 0.066), left: V(0, -0.0205, -0.23) };
   },
 
   spas12(g) {
@@ -542,7 +535,7 @@ const BUILDERS: Record<string, Builder> = {
     side(g, [[0.31, 0.066], [0.326, 0.066], [0.326, -0.028], [0.31, -0.028]], 0.05, M.blued, 0, 0.004);
     frontSight(g, -0.45, by + 0.018, 0.082, { ears: true });
     rearPeep(g, 0.06, 0.07, 0.082);
-    return { muzzle: [0, by, -0.55], sightY: 0.082, right: gc, grip: 0.25, gw: 0.032, left: { kind: 'support', c: V(0, 0.018, -0.25), hw: 0.026, hh: 0.024 } };
+    return { muzzle: [0, by, -0.55], sightY: 0.082, right: gc, left: V(0, -0.018, -0.25) };
   },
 
   m1919(g) {
@@ -573,7 +566,7 @@ const BUILDERS: Record<string, Builder> = {
     for (const x of [0.016, -0.016]) rod(g, V(x, 0.004, -0.455), V(x, 0.0, -0.26), 0.0035, M.park);
     frontSight(g, -0.5, by + 0.027, 0.1, { ears: true });
     rearPeep(g, 0.1, 0.083, 0.1);
-    return { muzzle: [0, by, -0.565], sightY: 0.1, right: gc, grip: 0.3, left: { kind: 'support', c: V(0, by, -0.24), hw: 0.028, hh: 0.028 } };
+    return { muzzle: [0, by, -0.565], sightY: 0.1, right: gc, left: V(0, by - 0.04, -0.24) };
   },
 
   rpk(g) {
@@ -597,7 +590,7 @@ const BUILDERS: Record<string, Builder> = {
     side(g, [[0.1, 0.05], [0.12, 0.05], [0.32, 0.037], [0.33, 0.037], [0.334, -0.07], [0.322, -0.074], [0.26, -0.062], [0.232, -0.046, 0.245, -0.062], [0.14, -0.012], [0.1, 0.0]], 0.04, M.woodRed, 0, 0.004);
     side(g, [[0.329, 0.038], [0.337, 0.038], [0.34, -0.071], [0.332, -0.074]], 0.041, M.dark, 0, 0.002);
     rearSight(g, -0.09, 0.065, 0.08, M.blued, 0.016);
-    return { muzzle: [0, by, -0.605], sightY: 0.08, right: gc, grip: 0.3, left: { kind: 'support', c: V(0, 0.03, -0.21), hw: 0.022, hh: 0.015 } };
+    return { muzzle: [0, by, -0.605], sightY: 0.08, right: gc, left: V(0, 0.003, -0.21) };
   },
 
   mg42(g) {
@@ -626,7 +619,7 @@ const BUILDERS: Record<string, Builder> = {
     for (const x of [0.016, -0.016]) rod(g, V(x, 0.012, -0.495), V(x, 0.006, -0.28), 0.0035, M.park);
     frontSight(g, -0.505, by + 0.0245, 0.088, { ears: true });
     rearSight(g, 0.08, 0.074, 0.088, M.park, 0.02);
-    return { muzzle: [0, by, -0.58], sightY: 0.088, right: gc, grip: 0.28, left: { kind: 'support', c: V(0, by, -0.24), hw: 0.025, hh: 0.025 } };
+    return { muzzle: [0, by, -0.58], sightY: 0.088, right: gc, left: V(0, by - 0.037, -0.24) };
   },
 
   kar98k(g) {
@@ -653,7 +646,7 @@ const BUILDERS: Record<string, Builder> = {
     rearSight(g, -0.14, by + 0.017, 0.066, M.blued, 0.018);
     side(g, [[0.05, -0.008], [-0.08, -0.008], [-0.08, -0.016], [0.05, -0.016]], 0.022, M.blued, 0, 0.002);
     triggerGuard(g, 0.075, 0.035, -0.012, -0.038);
-    return { muzzle: [0, by, -0.77], sightY: 0.066, right: V(0, -0.034, 0.098), grip: 0.5, gw: 0.04, left: { kind: 'support', c: V(0, 0.022, -0.27), hw: 0.02, hh: 0.018 } };
+    return { muzzle: [0, by, -0.77], sightY: 0.066, right: V(0, -0.034, 0.098), left: V(0, -0.008, -0.27) };
   },
 
   ptrs(g) {
@@ -683,7 +676,7 @@ const BUILDERS: Record<string, Builder> = {
     for (const x of [0.016, -0.016]) rod(g, V(x, 0.022, -0.75), V(x, 0.016, -0.42), 0.0045, M.park);
     frontSight(g, -0.95, by + 0.0125, 0.092, { hood: true });
     rearSight(g, -0.12, 0.066, 0.092, M.park, 0.022);
-    return { muzzle: [0, by, -1.065], sightY: 0.092, right: gc, grip: 0.3, gw: 0.032, left: { kind: 'support', c: V(0, 0.02, -0.26), hw: 0.022, hh: 0.016 } };
+    return { muzzle: [0, by, -1.065], sightY: 0.092, right: gc, left: V(0, -0.008, -0.26) };
   },
 
   panzerschreck(g) {
@@ -719,7 +712,7 @@ const BUILDERS: Record<string, Builder> = {
     plate(g, [[-0.022, by + R], [0.022, by + R], [0.022, 0.146], [-0.022, 0.146]], 0.003, -0.46, M.dark, [[[-0.018, 0.108], [0.018, 0.108], [0.018, 0.142], [-0.018, 0.142]]]);
     box(g, 0.0024, 0.022, 0.003, 0, 0.119, -0.46, M.dark);
     box(g, 0.024, 0.0012, 0.003, 0, 0.124, -0.46, M.dark);
-    return { muzzle: [0, by, -0.82], sightY: 0.13, right: gc, grip: 0.15, left: { kind: 'grip', c: fc, angle: -0.05, gw: 0.028 } };
+    return { muzzle: [0, by, -0.82], sightY: 0.13, right: gc, left: fc };
   },
 
   raygun(g) {
@@ -740,7 +733,7 @@ const BUILDERS: Record<string, Builder> = {
     triggerGuard(g, 0.0, -0.036, 0.002, -0.026, M.rayRed, 0.008);
     rearSight(g, 0.02, 0.083, 0.095, M.rayRed, 0.012);
     frontSight(g, -0.19, by + 0.016, 0.095, { m: M.rayRed });
-    return { muzzle: [0, by, -0.23], sightY: 0.095, right: gc, grip: 0.32, left: { kind: 'cup' } };
+    return { muzzle: [0, by, -0.23], sightY: 0.095, right: gc, left: 'cup' };
   },
 
   wunderwaffe(g) {
@@ -775,18 +768,18 @@ const BUILDERS: Record<string, Builder> = {
     triggerGuard(g, 0.008, -0.034, -0.002, -0.028, M.brass);
     rearSight(g, 0.03, 0.068, 0.082, M.dark, 0.016);
     frontSight(g, -0.37, by + 0.021, 0.082);
-    return { muzzle: [0, by, -0.43], sightY: 0.082, right: gc, grip: 0.3, left: { kind: 'support', c: V(0, by, -0.27), hw: 0.021, hh: 0.021 } };
+    return { muzzle: [0, by, -0.43], sightY: 0.082, right: gc, left: V(0, by - 0.033, -0.27) };
   },
 };
 
-/** 右手握把 + 左手（托护木 / 握前握把 / 双手握手枪）+ 两条袖子 */
+/** 第一人称的手：简单的方块手 + 袖子 */
 function addArms(g: THREE.Group, info: Info) {
-  const gw = info.gw ?? 0.03;
-  arm(g, gripHand(g, info.right, info.grip, 1, true, gw), V(0.13, -0.3, 0.42));
-  const L = info.left;
-  if (L.kind === 'cup') arm(g, cupHand(g, info.right, info.grip, gw), V(-0.16, -0.3, 0.34));
-  else if (L.kind === 'grip') arm(g, gripHand(g, L.c, L.angle, -1, false, L.gw ?? 0.03), V(-0.2, -0.28, 0.38));
-  else arm(g, supportHand(g, L.c, L.hw, L.hh), V(-0.2, -0.28, 0.38));
+  const r = info.right;
+  box(g, 0.044, 0.066, 0.08, r.x, r.y - 0.005, r.z, M.skin, -0.2);
+  limb(g, V(r.x + 0.01, r.y - 0.02, r.z + 0.05), V(r.x + 0.13, r.y - 0.3, r.z + 0.42), 0.075, M.sleeve);
+  const l = info.left === 'cup' ? V(r.x - 0.014, r.y - 0.01, r.z - 0.015) : info.left;
+  box(g, 0.048, 0.045, 0.085, l.x, l.y - 0.005, l.z, M.skin, 0, 0, 0.3);
+  limb(g, V(l.x - 0.015, l.y - 0.02, l.z + 0.05), V(l.x - 0.2, l.y - 0.28, l.z + 0.38), 0.075, M.sleeve);
 }
 
 /** 带手的第一人称枪模建一次要几十毫秒，建好后留一份模板，之后克隆（共享几何体和材质） */
@@ -827,7 +820,8 @@ export function buildKnife() {
   h.push([0, 0.0435]);
   lathe(g, h, 0, 0, M.leather, 16);
   lathe(g, [[0, 0.043], [0.013, 0.044], [0.014, 0.05], [0.01, 0.058], [0, 0.06]], 0, 0, M.bright, 16);
-  arm(g, gripHand(g, V(0, 0, 0.004), Math.PI / 2, 1, false, 0.026), V(0.12, -0.2, 0.45));
+  box(g, 0.055, 0.075, 0.085, 0, -0.005, 0.01, M.skin);
+  limb(g, V(0.01, -0.02, 0.06), V(0.12, -0.2, 0.45), 0.075, M.sleeve);
   finalize(g);
   return g;
 }
@@ -838,7 +832,8 @@ export function buildBottle() {
   latheY(g, [[0, -0.065], [0.028, -0.065], [0.0305, -0.058], [0.0305, 0.035], [0.027, 0.055], [0.012, 0.082], [0.0105, 0.128], [0, 0.13]], 0, 0, glass);
   latheY(g, [[0.0125, 0.126], [0.0135, 0.128], [0.0135, 0.14], [0.012, 0.142], [0, 0.143]], 0, 0, M.brass, 16);
   latheY(g, [[0.031, -0.03], [0.031, 0.024]], 0, 0, new THREE.MeshStandardMaterial({ color: 0xf0e6c8, roughness: 0.8 }));
-  arm(g, gripHand(g, V(0, -0.012, 0), 0, 1, false, 0.061), V(0.14, -0.25, 0.32));
+  box(g, 0.06, 0.08, 0.07, 0.03, -0.02, 0.0, M.skin);
+  limb(g, V(0.04, -0.05, 0.03), V(0.18, -0.3, 0.35), 0.075, M.sleeve);
   finalize(g);
   return { group: g, glass };
 }
