@@ -31,8 +31,8 @@ export const TURRET_KINDS: Record<TurretKind, {
   /** 碰撞半径 */
   radius: number;
 }> = {
-  light: { name: '自动机枪', cost: 8000, ammo: 200, damage: 110, interval: 0.1, range: 20, reload: 2.5, pierce: 0, radius: 0.35 },
-  heavy: { name: '重型机枪', cost: 14000, ammo: 400, damage: 200, interval: 0.12, range: 24, reload: 3.5, pierce: 1, radius: 0.42 },
+  light: { name: '自动机枪', cost: 10000, ammo: 200, damage: 110, interval: 0.1, range: 20, reload: 2.5, pierce: 0, radius: 0.35 },
+  heavy: { name: '重型机枪', cost: 20000, ammo: 400, damage: 200, interval: 0.12, range: 24, reload: 3.5, pierce: 1, radius: 0.42 },
 };
 const L = TURRET_KINDS.light, H = TURRET_KINDS.heavy;
 
@@ -46,7 +46,7 @@ export const TURRET_UPGRADES: Record<TurretUpgradeId, { name: string; icon: stri
     base: `自动机枪一次装 ${L.ammo} 发，重型机枪 ${H.ammo} 发。`,
     levels: [
       {
-        cost: 3000,
+        cost: 40000,
         name: '双倍弹匣',
         desc: `所有机枪的弹匣容量翻倍（自动机枪 ${L.ammo * 2} 发、重型机枪 ${H.ammo * 2} 发）。已部署的机枪不会自动补满，打空后上弹时装满。`,
       },
@@ -56,13 +56,13 @@ export const TURRET_UPGRADES: Record<TurretUpgradeId, { name: string; icon: stri
     name: '威力强化',
     icon: '💥',
     base: `自动机枪每发 ${L.damage} 伤害，重型机枪每发 ${H.damage}。`,
-    levels: [{ cost: 5000, name: '双倍威力', desc: `所有机枪每发伤害翻倍（自动机枪 ${L.damage * 2}、重型机枪 ${H.damage * 2}）。` }],
+    levels: [{ cost: 40000, name: '双倍威力', desc: `所有机枪每发伤害翻倍（自动机枪 ${L.damage * 2}、重型机枪 ${H.damage * 2}）。` }],
   },
   autoload: {
     name: '自动装弹',
     icon: '🔄',
     base: '打空后要走过去按 F 上弹。',
-    levels: [{ cost: 10000, name: '自动装弹机', desc: '所有机枪打空后自己上弹，不用再走过去按 F。没打空之前不会提前上弹。' }],
+    levels: [{ cost: 100000, name: '自动装弹机', desc: '所有机枪打空后自己上弹，不用再走过去按 F。没打空之前不会提前上弹。' }],
   },
 };
 
