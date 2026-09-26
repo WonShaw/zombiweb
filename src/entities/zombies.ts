@@ -466,8 +466,8 @@ export class ZombieManager {
     z.health -= dmg;
     const force = opts.force ?? 1;
     if (z.health > 0) {
-      // 自动机枪打中不给分，只有击杀给分，免得挂机刷分
-      if (source !== 'turret') g.addPoints(10);
+      // 自动机枪、电网、铁丝网打中不给分，只有击杀给分，免得挂机刷分
+      if (source !== 'turret' && source !== 'trap') g.addPoints(10);
       z.onHit(part, dmg, dir, force);
       g.feedback.onDamage(z, dmg, part, source, false, opts.point, opts.kind);
       return false;

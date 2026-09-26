@@ -487,6 +487,17 @@ export class Sfx {
     }
   }
 
+  /** 丧尸被铁丝网扎到：金属刮擦 + 一声痛苦的低吼 */
+  wireScrape(pos: THREE.Vector3) {
+    if (!this.ctx) return;
+    const t = this.now;
+    const out = this.out(pos, 1);
+    this.noise(t, 0.18, out, { type: 'highpass', f0: 3200, vol: 0.3, attack: 0.01 });
+    this.tone(t, 0.3, out, { type: 'triangle', f0: 1850, vol: 0.06 });
+    this.tone(t, 0.25, out, { type: 'triangle', f0: 2710, vol: 0.04 });
+    this.tone(t + 0.02, 0.35, out, { type: 'sawtooth', f0: 150, f1: 95, vol: 0.08 });
+  }
+
   carpenter() {
     if (!this.ctx) return;
     const t = this.now;

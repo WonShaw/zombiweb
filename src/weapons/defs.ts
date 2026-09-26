@@ -273,12 +273,13 @@ export const PERKS = {
 export type UpgradeId = 'armor' | 'shock' | 'repair';
 export const UPGRADES: Record<UpgradeId, { name: string; icon: string; levels: { cost: number; name: string; desc: string }[]; base: string }> = {
   armor: {
-    name: '加固',
+    name: '路障材质',
     icon: '🛡',
     base: '普通木板：丧尸拉一下就掉一块。',
     levels: [
-      { cost: 1500, name: '铁皮包边', desc: '每块木板要拉 2 下才会掉。' },
-      { cost: 3500, name: '钢板路障', desc: '换成钢板，每块要拉 3 下才会掉。' },
+      { cost: 1500, name: '加固木板', desc: '更厚的木板加铁皮包边，每块要拉 2 下才会掉。' },
+      { cost: 3500, name: '钢板', desc: '换成带铆钉的钢板，每块要拉 3 下才会掉。' },
+      { cost: 6000, name: '铁丝网钢板', desc: '钢板上缠满带刺铁丝网，每块要拉 4 下；丧尸每拉一下被扎掉 12% 生命值（反伤）。' },
     ],
   },
   shock: {

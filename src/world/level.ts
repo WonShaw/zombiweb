@@ -12,6 +12,15 @@ export const DOOR_TOP = 2.4;
 export const SILL = 0.9;
 export const LINTEL = 2.1;
 export const BOARDS = 6;
+/** 各档路障板子的缩放：加固木板更厚，钢板更宽 */
+const BOARD_SCALE: [number, number, number][] = [
+  [1, 1, 1],
+  [1, 1.2, 1.9],
+  [1.02, 1.45, 1.3],
+  [1.02, 1.45, 1.3],
+];
+/** 铁丝网每次被拉扎掉丧尸最大生命值的比例 */
+export const WIRE_REFLECT = 0.12;
 
 export interface DoorRT {
   def: DoorDef;
@@ -40,6 +49,8 @@ export interface WindowRT {
   charge: number;
   repairT: number;
   sparkT: number;
+  /** 第 4 档的铁丝网（未升级时为 null） */
+  wire: THREE.Group | null;
   group: THREE.Group;
   inside: THREE.Vector3;
   outside: THREE.Vector3;
@@ -532,6 +543,7 @@ export class Level {
         charge: 0,
         repairT: 0,
         sparkT: Math.random(),
+        wire: null,
         group, inside, outside, center, occupant: null,
       });
     });
@@ -567,6 +579,14 @@ export class Level {
       z.stun(0.8);
       if (g.zombies.damage(z, z.maxHealth * frac, 'torso', 'trap')) return true;
     }
+    // 铁丝网反伤：每拉一下都被扎
+    if (this.upgrades.armor >= 3 && this.boardCount(w) > 0) {
+      const hand = new THREE.Vector3(z.pos.x, z.pos.y + 1.25, z.pos.z).lerp(p, 0.5);
+      g.particles.blood(hand, new THREE.Vector3(w.out[0], 0.4, w.out[1]), 6, 0.8);
+      g.audio.wireScrape(hand);
+      const dir = new THREE.Vector3(w.out[0], 0, w.out[1]);
+      if (g.zombies.damage(z, z.maxHealth * WIRE_REFLECT, 'torso', 'trap', dir, { point: hand })) return true;
+    }
     const idxs = w.present.map((ok, i) => (ok ? i : -1)).filter((i) => i >= 0);
     if (!idxs.length) return false;
     const i = idxs[Math.floor(Math.random() * idxs.length)];
@@ -578,8 +598,13 @@ export class Level {
     }
     w.present[i] = false;
     w.boardAnim[i] = { t: 0, mode: 1 };
-    g.audio.woodBreak(p);
-    g.particles.wood(p);
+    if (this.upgrades.armor >= 2) {
+      g.audio.boardRattle(p, true);
+      g.particles.sparks(p, 0xffc070);
+    } else {
+      g.audio.woodBreak(p);
+      g.particles.wood(p);
+    }
     return false;
   }
 
@@ -622,10 +647,16 @@ export class Level {
     if (id === 'armor') {
       const max = this.boardMaxHp;
       const mat = this.boardMats[Math.min(level, 2)];
+      const sc = BOARD_SCALE[Math.min(level, BOARD_SCALE.length - 1)];
       for (const w of this.windows) {
         for (let i = 0; i < BOARDS; i++) {
           w.boards[i].material = mat;
+          w.boards[i].scale.set(...sc);
           if (w.present[i]) w.hp[i] = max;
+        }
+        if (level >= 3 && !w.wire) {
+          w.wire = this.buildWire();
+          w.group.add(w.wire);
         }
       }
     }
@@ -899,8 +930,47 @@ export class Level {
     }
   }
 
+  private wireGeo: THREE.BufferGeometry | null = null;
+  private wireMat = new THREE.MeshStandardMaterial({ color: 0x8e9196, roughness: 0.45, metalness: 0.35 });
+
+  /** 两卷带刺的蛇腹形铁丝网，横挂在钢板内侧 */
+  private buildWire() {
+    if (!this.wireGeo) {
+      const turns = 12, n = 260, r = 0.11, L = 1.28;
+      const helix = (t: number) => {
+        const a = t * turns * Math.PI * 2;
+        return new THREE.Vector3(-L / 2 + t * L, Math.cos(a) * r, Math.sin(a) * r * 0.7);
+      };
+      const pts: THREE.Vector3[] = [];
+      for (let i = 0; i <= n; i++) pts.push(helix(i / n));
+      const parts: THREE.BufferGeometry[] = [new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), n, 0.0055, 4, false)];
+      // 倒刺：沿铁丝每隔一段放一个小“X”
+      const barbs = turns * 4;
+      for (let k = 0; k < barbs; k++) {
+        const p = helix((k + 0.5) / barbs);
+        for (const rz of [Math.PI / 4, -Math.PI / 4]) {
+          const b = new THREE.BoxGeometry(0.05, 0.006, 0.006);
+          b.rotateZ(rz);
+          b.rotateY((k % 3) * 0.7);
+          b.translate(p.x, p.y, p.z);
+          parts.push(b);
+        }
+      }
+      this.wireGeo = mergeGeometries(parts)!;
+    }
+    const g = new THREE.Group();
+    for (const y of [0.32, -0.3]) {
+      const m = new THREE.Mesh(this.wireGeo, this.wireMat);
+      m.position.set(0, y, 0.11);
+      m.rotation.x = y > 0 ? 0.3 : -0.2;
+      g.add(m);
+    }
+    return g;
+  }
+
   private updateWindowUpgrades(w: WindowRT, dt: number) {
     const u = this.upgrades;
+    if (w.wire) w.wire.visible = u.armor >= 3 && this.boardCount(w) > 0;
     if (u.shock > 0) {
       const period = u.shock >= 2 ? 4 : 8;
       w.charge = Math.min(1, w.charge + dt / period);
