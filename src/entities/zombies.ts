@@ -78,8 +78,12 @@ export class Zombie {
   private returnState: ZState = 'chasing';
   private deathDir = -1;
   private deathVel = new THREE.Vector3();
+  /** 多久没有沿路径往玩家那边走了（卡住检测） */
   private progressT = 0;
-  private bestDist = Infinity;
+  /** 累计沿路径走近了多少米，攒够 0.5 米算有进展 */
+  private progAcc = 0;
+  private lastDist = 0;
+  private flowVer = -1;
   private climbFrom = new THREE.Vector3();
   private pitch = rand(0.85, 1.2);
   private moved = 0;
@@ -137,7 +141,8 @@ export class Zombie {
     this.st = 0;
     this.model.setSilhouette(this.outsideWindow ? this.tier : null);
     if (s === 'chasing') {
-      this.bestDist = Infinity;
+      this.progAcc = 0;
+      this.flowVer = -1;
       this.progressT = 0;
       this.steerT = 0;
     }
@@ -328,13 +333,21 @@ export class Zombie {
           this.attackHit = false;
           this.setState('attacking');
         }
-        // 长时间追不近就换个窗户重新出生，避免卡死（高度差按两倍算，上楼也算在靠近）
-        const d3 = Math.hypot(pDist, pdy * 2);
-        if (d3 < this.bestDist - 0.5) {
-          this.bestDist = d3;
+        // 长时间追不近就换个窗户重新出生，避免卡死。
+        // “远近”按寻路流场里的路径距离算：从二楼绕回廊走向楼梯时直线距离会先变远，但路径距离一直在变短，不算卡住
+        const lvl = g.level;
+        const node = lvl.nodeAt(this.pos.x, this.pos.y, this.pos.z);
+        const fd = node >= 0 ? lvl.flow[node] : Infinity;
+        const dist = Number.isFinite(fd) ? fd : Math.hypot(pDist, pdy * 2);
+        // 逐帧累计路径距离的减少量；玩家换了格子、流场刚重算的那一帧前后没法比，跳过
+        if (lvl.flowVersion === this.flowVer) this.progAcc += this.lastDist - dist;
+        this.flowVer = lvl.flowVersion;
+        this.lastDist = dist;
+        if (this.progAcc >= 0.5) {
+          this.progAcc = 0;
           this.progressT = 0;
         } else this.progressT += dt;
-        if (this.progressT > 14 && d3 > 10) this.respawn();
+        if (this.progressT > 14 && dist > 10) this.respawn();
         break;
       }
       case 'attacking': {

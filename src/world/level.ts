@@ -197,6 +197,8 @@ export class Level {
   doors: DoorRT[] = [];
   windows: WindowRT[] = [];
   flow: Float32Array;
+  /** 流场每重算一次加 1（丧尸据此重新记录自己的路径距离） */
+  flowVersion = 0;
   private flowCell = -1;
   private heap = new MinHeap();
   private closed: Uint8Array;
@@ -550,6 +552,7 @@ export class Level {
     if (!force && start === this.flowCell) return;
     if (this.stairOf[this.nodeCell(start)] < 0 && !this.navOk(start)) return;
     this.flowCell = start;
+    this.flowVersion++;
     const flow = this.flow;
     flow.fill(Infinity);
     this.closed.fill(0);
